@@ -102,15 +102,23 @@ databricks current-user me --profile=<name>
 - Agent prompts and tool descriptions
 - Talk track and demo flow
 
-### Lakebase MCP Server (agent writes)
+### Lakebase MCP Server (agent writes — shared across demos)
 
-The Lakebase MCP Server is a **separate Databricks App** that exposes Lakebase CRUD operations as MCP tools. MAS uses it as a sub-agent so the AI chat can write to Lakebase tables (create work orders, update statuses, etc.).
+The Lakebase MCP Server is a **single shared Databricks App** that exposes Lakebase CRUD operations as MCP tools. Deploy it once and reuse it across multiple demos via URL-based database routing.
 
 **How it works:**
-1. Deploy `lakebase-mcp-server/` as a second Databricks App (e.g., `<demo>-lakebase-mcp`)
-2. Create a UC HTTP connection pointing to `https://<mcp-app-url>/mcp/`
-3. Add the MCP connection as a sub-agent in MAS config
-4. MAS now has 16 tools for reading/writing any Lakebase table
+1. Deploy `lakebase-mcp-server/` as a Databricks App (e.g., `lakebase-mcp-server`) — **one-time setup**
+2. For each demo, create a UC HTTP connection pointing to `https://<mcp-app-url>/db/<database_name>/mcp/`
+3. Add the MCP connection as a sub-agent in the demo's MAS config
+4. MAS now has 16 tools scoped to that demo's database
+
+**Multi-database routing:** The server uses `/db/{database}/mcp/` URL routing with per-database connection pools. Multiple demos can use the same MCP server concurrently without interference. The `/mcp/` endpoint (no database prefix) still works for backward compatibility using the default database.
+
+**Adding a new demo's database to the shared server:**
+1. Register the database as a resource: `databricks apps update lakebase-mcp-server --json '{"resources": [... all databases ...]}'`
+2. Redeploy to grant the SP access
+3. Grant table access via `databricks psql`
+4. Create a UC HTTP connection with `base_path=/db/<new_database>/mcp/`
 
 **16 MCP Tools available to MAS:**
 - READ: `list_tables`, `describe_table`, `read_query`, `list_schemas`, `get_connection_info`, `list_slow_queries`
@@ -118,7 +126,7 @@ The Lakebase MCP Server is a **separate Databricks App** that exposes Lakebase C
 - SQL: `execute_sql`, `execute_transaction`, `explain_query`
 - DDL: `create_table`, `drop_table`, `alter_table`
 
-See `lakebase-mcp-server/CLAUDE.md` for full deployment instructions.
+See `lakebase-mcp-server/CLAUDE.md` for full deployment and multi-database setup instructions.
 
 ## Core Module Reference
 
@@ -413,37 +421,61 @@ If you add a `database` resource via `databricks api patch /api/2.0/apps/<name>`
 
 ## Lakebase MCP Server Deployment
 
-The scaffold includes a reusable Lakebase MCP server at `lakebase-mcp-server/`. This is deployed as a **separate Databricks App** and wired to MAS as a sub-agent.
+The scaffold includes a **shared** Lakebase MCP server at `lakebase-mcp-server/`. Deploy it once and reuse across all demos via URL-based database routing (`/db/{database}/mcp/`).
 
-### Deploy the MCP Server
+### First-Time Setup (deploy once)
 ```bash
-# 1. Create the app
-databricks apps create <demo>-lakebase-mcp --profile=<profile>
+# 1. Create the app (shared name — not per-demo)
+databricks apps create lakebase-mcp-server --profile=<profile>
 
-# 2. Update lakebase-mcp-server/app/app.yaml with your instance and database names
+# 2. Update lakebase-mcp-server/app/app.yaml with your instance and first database
 
 # 3. Sync and deploy
-databricks sync ./lakebase-mcp-server/app /Workspace/Users/<you>/demos/<name>/lakebase-mcp/app --profile=<profile> --watch=false
-databricks apps deploy <demo>-lakebase-mcp --source-code-path /Workspace/Users/<you>/demos/<name>/lakebase-mcp/app --profile=<profile>
+databricks sync ./lakebase-mcp-server/app /Workspace/Users/<you>/lakebase-mcp-server/app --profile=<profile> --watch=false
+databricks apps deploy lakebase-mcp-server --source-code-path /Workspace/Users/<you>/lakebase-mcp-server/app --profile=<profile>
 
 # 4. Grant CAN_USE to users group (required for MAS proxy)
-databricks api patch /api/2.0/permissions/apps/<demo>-lakebase-mcp \
+databricks api patch /api/2.0/permissions/apps/lakebase-mcp-server \
   --json '{"access_control_list":[{"group_name":"users","permission_level":"CAN_USE"}]}' \
   --profile=<profile>
 
-# 5. Grant table access to app SP
+# 5. Grant table access to app SP for the first database
 databricks psql <instance> --profile=<profile> -- -d <database> -c "
 GRANT ALL ON ALL TABLES IN SCHEMA public TO \"<mcp-app-sp-client-id>\";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"<mcp-app-sp-client-id>\";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO \"<mcp-app-sp-client-id>\";
 "
 ```
 
-### Create UC HTTP Connection
-Create a Unity Catalog connection so MAS can call the MCP server:
+### Adding a New Demo's Database (subsequent demos)
+```bash
+# 1. Register the new database as a resource (include ALL existing databases too)
+databricks apps update lakebase-mcp-server --json '{
+  "resources": [
+    {"name": "database", "database": {"instance_name": "<instance>", "database_name": "<existing_db>", "permission": "CAN_CONNECT_AND_CREATE"}},
+    {"name": "database-2", "database": {"instance_name": "<instance>", "database_name": "<new_demo_db>", "permission": "CAN_CONNECT_AND_CREATE"}}
+  ]
+}' --profile=<profile>
+
+# 2. Redeploy to grant SP access to the new database
+databricks apps deploy lakebase-mcp-server --source-code-path /Workspace/Users/<you>/lakebase-mcp-server/app --profile=<profile>
+
+# 3. Grant table access in the new database
+databricks psql <instance> --profile=<profile> -- -d <new_demo_db> -c "
+GRANT ALL ON ALL TABLES IN SCHEMA public TO \"<mcp-app-sp-client-id>\";
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"<mcp-app-sp-client-id>\";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO \"<mcp-app-sp-client-id>\";
+"
+```
+
+### Create UC HTTP Connection (per demo)
+Create a Unity Catalog connection for each demo pointing to the shared MCP server:
 - **Type:** HTTP
-- **URL:** `https://<mcp-app-url>/mcp/` (trailing slash required)
+- **URL:** `https://<mcp-app-url>/db/<database_name>/mcp/` (database name in the path)
 - **Auth:** Databricks OAuth M2M
-- **Connection fields:** `host`, `port=443`, `base_path=/mcp/`, `client_id`, `client_secret`, `oauth_scope=all-apis`
+- **Connection fields:** `host`, `port=443`, `base_path=/db/<database_name>/mcp/`, `client_id`, `client_secret`, `oauth_scope=all-apis`
+
+For backward compatibility, `base_path=/mcp/` still works (uses the default database from `app.yaml`).
 
 ### Wire to MAS
 In `agent_bricks/mas_config.json`, add:

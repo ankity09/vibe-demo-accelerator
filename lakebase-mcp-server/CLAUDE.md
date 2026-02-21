@@ -5,19 +5,25 @@ Reusable MCP server that exposes Lakebase (PostgreSQL) read/write operations as 
 ## Architecture
 
 ```
-AI Agent (MAS / Claude / etc.)
-    |
-    | MCP Protocol (StreamableHTTP)
-    v
-Lakebase MCP Server (Databricks App)
-    |-- /          Web UI (database explorer, SQL query, tool playground, docs)
-    |-- /mcp/      MCP endpoint (StreamableHTTP, stateless)
-    |-- /api/*     REST API (tables, query, insert, update, delete)
-    |-- /health    Health check
-    |
-    | psycopg2 (PostgreSQL wire protocol)
-    v
-Lakebase Instance (PostgreSQL-compatible)
+Demo A (MAS)                    Demo B (MAS)
+    |                               |
+    | base_path=/db/demo_a_db/mcp/  | base_path=/db/demo_b_db/mcp/
+    v                               v
+    ┌───────────────────────────────────┐
+    │  Lakebase MCP Server (shared)     │
+    │  ── /db/{database}/mcp/  (multi)  │
+    │  ── /mcp/                (default)│
+    │  ── /api/*               (REST)   │
+    │  ── /health              (check)  │
+    │                                   │
+    │  Per-database connection pools     │
+    │  (lazy-initialized, token refresh) │
+    └───────────────┬───────────────────┘
+                    | psycopg2
+                    v
+    Lakebase Instance (PostgreSQL-compatible)
+        ├── demo_a_db
+        └── demo_b_db
 ```
 
 ## Connection Modes
@@ -121,20 +127,50 @@ The root URL (`/`) serves a single-page application with 4 tabs:
 
 The header includes a database switcher dropdown to switch between databases on the same Lakebase instance without redeployment.
 
-## Reuse Across Demos
+## Multi-Database Routing (Shared MCP Server)
 
-Change the `instance_name` and `database_name` in `app/app.yaml`:
+Deploy ONE MCP server and share it across multiple demos. Each demo uses a different database on the same Lakebase instance via URL-based routing.
 
-```yaml
-resources:
-  - name: database
-    database:
-      instance_name: my-instance      # change per demo
-      database_name: my_database       # change per demo
-      permission: CAN_CONNECT_AND_CREATE
+### How it works
+
+- **`/db/{database}/mcp/`** — MCP endpoint scoped to a specific database
+- **`/mcp/`** — MCP endpoint using the default database (backward compatible)
+- Each database gets its own connection pool (lazy-initialized, concurrent-safe)
+- Token refresh is per-pool — no interference between demos
+
+### Adding a new demo's database
+
+1. **Register the database as a resource** on the shared MCP server app:
+```bash
+databricks apps update lakebase-mcp-server --json '{
+  "resources": [
+    {"name": "database", "database": {"instance_name": "my-instance", "database_name": "demo_a_db", "permission": "CAN_CONNECT_AND_CREATE"}},
+    {"name": "database-2", "database": {"instance_name": "my-instance", "database_name": "demo_b_db", "permission": "CAN_CONNECT_AND_CREATE"}}
+  ]
+}' --profile=<PROFILE>
+```
+**Important:** Include ALL database resources (existing + new) — the update replaces the array.
+
+2. **Redeploy** to grant the SP access to the new database:
+```bash
+databricks apps deploy lakebase-mcp-server --source-code-path <path> --profile=<PROFILE>
 ```
 
-No code changes needed. The UI and tools work with any Lakebase database.
+3. **Grant table access** in the new database:
+```bash
+databricks psql my-instance --profile=<PROFILE> -- -d demo_b_db -c "
+GRANT ALL ON ALL TABLES IN SCHEMA public TO \"<mcp-sp-client-id>\";
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"<mcp-sp-client-id>\";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO \"<mcp-sp-client-id>\";
+"
+```
+
+4. **Create a UC HTTP connection** for the new demo pointing to the shared server:
+   - URL: `https://<mcp-app-url>/db/demo_b_db/mcp/`
+   - Auth: Databricks OAuth M2M
+   - Connection fields: host, port=443, **base_path=/db/demo_b_db/mcp/**, client_id, client_secret, oauth_scope=all-apis
+
+No code changes or redeployment of the MCP server code needed — just resource registration + permissions.
 
 ## Deployment
 
@@ -189,9 +225,9 @@ Visit `https://<app-url>/` for the web UI.
 ## Connecting to MAS
 
 1. Create a UC HTTP connection:
-   - URL: `https://<mcp-app-url>/mcp`
+   - URL: `https://<mcp-app-url>/db/<database_name>/mcp` (for shared server) or `https://<mcp-app-url>/mcp` (for single-database)
    - Auth: Databricks OAuth M2M (SP OAuth secret from Account Console)
-   - Connection fields: host, port=443, base_path=/mcp/, client_id, client_secret, oauth_scope=all-apis
+   - Connection fields: host, port=443, **base_path=/db/<database_name>/mcp/** (or /mcp/ for single-database), client_id, client_secret, oauth_scope=all-apis
 
 2. In MAS Supervisor config, add agent:
    - Type: **External MCP Server**
@@ -208,7 +244,8 @@ Visit `https://<app-url>/` for the web UI.
 4. **OAuth M2M for UC connection:** SP OAuth secrets must be created at Account Console level.
 5. **CAN_USE for users group:** MAS MCP proxy needs CAN_USE on the app. Grant to `users` group.
 6. **Autoscaling scale-to-zero:** If the autoscaling endpoint is suspended, the first request may take 2-5 seconds while compute wakes up.
-7. **Database switcher:** Switching databases reinitializes the connection pool. The table cache is cleared automatically.
+7. **Multi-database pools:** Each database gets its own connection pool (lazy-initialized). Pools are concurrent-safe — multiple demos can use the same MCP server simultaneously. The web UI database switcher changes the default database (for `/mcp/` endpoint).
+8. **Adding databases to shared server:** Register as a resource via `databricks apps update`, then redeploy to grant SP access. Include ALL resources in the update (it replaces the array).
 
 ## Local Development
 

@@ -17,6 +17,7 @@ Tools:
 """
 
 import contextlib
+import contextvars
 import json
 import logging
 import os
@@ -56,15 +57,24 @@ logger = logging.getLogger("lakebase-mcp")
 # ── Globals ──────────────────────────────────────────────────────────
 
 _ws = None
-_pg_pool = None
 MAX_READ_ROWS = int(os.environ.get("MAX_ROWS", "1000"))
 
 # Connection mode: "provisioned" (app.yaml PGHOST) or "autoscaling" (LAKEBASE_PROJECT)
 _connection_mode = None        # set by _detect_connection_mode()
 _autoscale_endpoint = None     # full endpoint resource name (autoscaling only)
-_token_timestamp = 0.0         # time.time() when current token was generated
 _TOKEN_REFRESH_SECONDS = 50 * 60  # refresh token every 50 min (expires at 60)
-_current_database = None       # override for database switcher (None = use env default)
+
+# ── Multi-database pool manager ─────────────────────────────────────
+# Supports multiple databases on the same Lakebase instance concurrently.
+# Each database gets its own connection pool and table cache.
+# URL routing: /db/{database}/mcp/ → sets _request_database context var
+# Backward compat: /mcp/ → uses _default_database from env vars
+
+_request_database = contextvars.ContextVar("request_database", default=None)
+_default_database = None       # set from PGDATABASE / LAKEBASE_DATABASE at startup
+_pools = {}                    # {db_name: {"pool": ThreadedConnectionPool, "token_ts": float}}
+_conn_to_db = {}               # {id(conn): db_name} — tracks which pool owns a connection
+_table_caches = {}             # {db_name: set_of_table_names or None}
 
 # ── Workspace client ─────────────────────────────────────────────────
 
@@ -112,7 +122,7 @@ def _get_pg_token_provisioned():
 
 def _get_autoscale_credentials():
     """Discover autoscaling endpoint and generate a fresh credential."""
-    global _autoscale_endpoint, _token_timestamp
+    global _autoscale_endpoint
     w = _get_ws()
     project = os.environ["LAKEBASE_PROJECT"]
     branch = os.environ.get("LAKEBASE_BRANCH", "production")
@@ -142,7 +152,6 @@ def _get_autoscale_credentials():
 
     # Generate credential
     cred = w.postgres.generate_database_credential(endpoint=endpoint_name)
-    _token_timestamp = time.time()
 
     # User = current workspace user
     user = w.current_user.me().user_name
@@ -156,39 +165,45 @@ def _get_autoscale_credentials():
     }
 
 
-def _init_pg_pool():
-    """Initialize the PostgreSQL connection pool. Supports both provisioned and autoscaling."""
-    global _pg_pool, _connection_mode, _token_timestamp
+def _init_pg_pool(db_name=None):
+    """Initialize or refresh a connection pool for a specific database.
+
+    If db_name is None, uses the default database from env vars.
+    Stores the pool in _pools[db_name] for concurrent multi-database access.
+    """
+    global _connection_mode, _default_database
 
     if _connection_mode is None:
         _detect_connection_mode()
 
-    if _pg_pool:
-        try:
-            _pg_pool.closeall()
-        except Exception:
-            pass
-
-    dbname_override = _current_database  # database switcher override
+    target_db = db_name
 
     if _connection_mode == "provisioned":
         pg_host = os.environ.get("PGHOST")
         pg_port = int(os.environ.get("PGPORT", "5432"))
-        pg_db = dbname_override or os.environ.get("PGDATABASE", "")
+        pg_db = target_db or os.environ.get("PGDATABASE", "")
         pg_user = os.environ.get("PGUSER", "")
         pg_pass = _get_pg_token_provisioned()
         pg_ssl = os.environ.get("PGSSLMODE", "require")
-        _token_timestamp = time.time()
+        token_ts = time.time()
     else:  # autoscaling
         creds = _get_autoscale_credentials()
         pg_host = creds["host"]
         pg_port = creds["port"]
-        pg_db = dbname_override or creds["database"]
+        pg_db = target_db or creds["database"]
         pg_user = creds["user"]
         pg_pass = creds["password"]
         pg_ssl = "require"
+        token_ts = time.time()
 
-    _pg_pool = psycopg2.pool.ThreadedConnectionPool(
+    # Close existing pool for this database if any
+    if pg_db in _pools:
+        try:
+            _pools[pg_db]["pool"].closeall()
+        except Exception:
+            pass
+
+    pool = psycopg2.pool.ThreadedConnectionPool(
         minconn=1,
         maxconn=5,
         host=pg_host,
@@ -198,35 +213,51 @@ def _init_pg_pool():
         password=pg_pass,
         sslmode=pg_ssl,
     )
-    logger.info("Lakebase pool initialized [%s]: %s:%s/%s", _connection_mode, pg_host, pg_port, pg_db)
+    _pools[pg_db] = {"pool": pool, "token_ts": token_ts}
+
+    # Set default database if not yet set
+    if _default_database is None:
+        _default_database = pg_db
+
+    logger.info("Pool initialized [%s]: %s:%s/%s (active pools: %d)",
+                _connection_mode, pg_host, pg_port, pg_db, len(_pools))
 
 
-def _maybe_refresh_token():
-    """Reinitialize pool if OAuth token is about to expire."""
-    global _pg_pool
-    if _token_timestamp and (time.time() - _token_timestamp) > _TOKEN_REFRESH_SECONDS:
-        logger.info("Token approaching expiry, refreshing pool...")
-        _init_pg_pool()
+def _maybe_refresh_token(db_name):
+    """Reinitialize pool if OAuth token is about to expire for the given database."""
+    if db_name in _pools:
+        entry = _pools[db_name]
+        if entry["token_ts"] and (time.time() - entry["token_ts"]) > _TOKEN_REFRESH_SECONDS:
+            logger.info("Token approaching expiry for %s, refreshing pool...", db_name)
+            _init_pg_pool(db_name)
 
 
 def _get_conn():
-    """Get a connection from the pool, re-init on pool errors or stale tokens."""
-    global _pg_pool
-    if _pg_pool is None:
-        _init_pg_pool()
-    _maybe_refresh_token()
+    """Get a connection from the pool for the active database (per-request context)."""
+    db = _request_database.get() or _default_database
+    if not db:
+        raise RuntimeError("No database specified. Set PGDATABASE env var or use /db/{database}/mcp/ routing.")
+    if db not in _pools:
+        _init_pg_pool(db)
+    _maybe_refresh_token(db)
+    pool_entry = _pools[db]
     try:
-        return _pg_pool.getconn()
+        conn = pool_entry["pool"].getconn()
     except psycopg2.pool.PoolError:
-        _init_pg_pool()
-        return _pg_pool.getconn()
+        _init_pg_pool(db)
+        conn = _pools[db]["pool"].getconn()
+    _conn_to_db[id(conn)] = db
+    return conn
 
 
 def _put_conn(conn, close=False):
-    """Return a connection to the pool."""
-    if _pg_pool is not None and conn is not None:
+    """Return a connection to the correct database pool."""
+    if conn is None:
+        return
+    db = _conn_to_db.pop(id(conn), None)
+    if db and db in _pools:
         try:
-            _pg_pool.putconn(conn, close=close)
+            _pools[db]["pool"].putconn(conn, close=close)
         except Exception:
             pass
 
@@ -334,19 +365,16 @@ def _classify_sql(sql):
 
 # ── Table name validation ────────────────────────────────────────────
 
-_valid_tables_cache = None
-
-
 def _get_valid_tables():
-    """Fetch list of valid public table names from pg_tables."""
-    global _valid_tables_cache
-    if _valid_tables_cache is None:
+    """Fetch list of valid public table names from pg_tables (per-database cache)."""
+    db = _request_database.get() or _default_database
+    if db not in _table_caches or _table_caches[db] is None:
         rows = _execute_read(
             "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
         )
-        _valid_tables_cache = {r["tablename"] for r in rows}
-        logger.info("Valid tables: %s", _valid_tables_cache)
-    return _valid_tables_cache
+        _table_caches[db] = {r["tablename"] for r in rows}
+        logger.info("Valid tables [%s]: %s", db, _table_caches[db])
+    return _table_caches[db]
 
 
 def _validate_table(table_name):
@@ -360,9 +388,10 @@ def _validate_table(table_name):
 
 
 def _invalidate_table_cache():
-    """Clear the table cache (e.g. after DDL)."""
-    global _valid_tables_cache
-    _valid_tables_cache = None
+    """Clear the table cache for the active database (e.g. after DDL)."""
+    db = _request_database.get() or _default_database
+    if db in _table_caches:
+        _table_caches[db] = None
 
 
 # ── JSONB detection ──────────────────────────────────────────────────
@@ -1413,7 +1442,7 @@ def _tool_get_connection_info():
         "connection_mode": _connection_mode or "unknown",
         "host": os.environ.get("PGHOST", ""),
         "port": int(os.environ.get("PGPORT", "5432")),
-        "database": _current_database or os.environ.get("PGDATABASE", ""),
+        "database": _request_database.get() or _default_database or os.environ.get("PGDATABASE", ""),
         "user": os.environ.get("PGUSER", ""),
         "sslmode": os.environ.get("PGSSLMODE", "require"),
     }
@@ -1600,53 +1629,45 @@ async def api_databases(request: Request):
         rows = _execute_read(
             "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname"
         )
-        current = _current_database or os.environ.get("PGDATABASE", "") or os.environ.get("LAKEBASE_DATABASE", "")
+        current = _request_database.get() or _default_database
         return JSONResponse({
             "current": current,
             "databases": [r["datname"] for r in rows],
+            "pools_active": list(_pools.keys()),
         })
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
 async def api_switch_database(request: Request):
-    """Switch to a different database on the same Lakebase instance."""
-    global _current_database, _pg_pool
+    """Switch the default database (for UI and backward-compatible /mcp/ endpoint).
+
+    This changes the default database for requests that don't use /db/{database}/ routing.
+    Pools are created lazily — no need to close/recreate existing pools.
+    """
+    global _default_database
     body = await request.json()
     new_db = body.get("database", "").strip()
     if not new_db:
         return JSONResponse({"error": "database name is required"}, status_code=400)
     if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', new_db):
         return JSONResponse({"error": f"Invalid database name: {new_db}"}, status_code=400)
+    old_db = _default_database
     try:
-        old_db = _current_database or os.environ.get("PGDATABASE", "") or os.environ.get("LAKEBASE_DATABASE", "")
-        _current_database = new_db
-        # Close existing pool and reinitialize with new database
-        if _pg_pool:
-            try:
-                _pg_pool.closeall()
-            except Exception:
-                pass
-            _pg_pool = None
-        _invalidate_table_cache()
-        _init_pg_pool()
-        # Verify connectivity
-        _execute_read("SELECT 1")
-        logger.info("Switched database: %s -> %s", old_db, new_db)
+        _default_database = new_db
+        # Ensure pool exists for the new database
+        if new_db not in _pools:
+            _init_pg_pool(new_db)
+        # Verify connectivity using the new database context
+        token = _request_database.set(new_db)
+        try:
+            _execute_read("SELECT 1")
+        finally:
+            _request_database.reset(token)
+        logger.info("Default database switched: %s -> %s", old_db, new_db)
         return JSONResponse({"switched": True, "from": old_db, "to": new_db})
     except Exception as e:
-        # Roll back to old database
-        _current_database = None
-        if _pg_pool:
-            try:
-                _pg_pool.closeall()
-            except Exception:
-                pass
-            _pg_pool = None
-        try:
-            _init_pg_pool()
-        except Exception:
-            pass
+        _default_database = old_db
         return JSONResponse({"error": f"Failed to switch to '{new_db}': {e}"}, status_code=400)
 
 
@@ -1658,15 +1679,18 @@ async def api_info(request: Request):
         pg_ok = True
     except Exception:
         pass
-    current_db = _current_database or os.environ.get("PGDATABASE", "") or os.environ.get("LAKEBASE_DATABASE", "")
+    current_db = _request_database.get() or _default_database
     info = {
         "server": "lakebase-mcp",
         "mcp_endpoint": "/mcp/",
+        "multi_db_endpoint": "/db/{database}/mcp/",
         "connection_mode": _connection_mode or "unknown",
         "database": current_db,
+        "default_database": _default_database,
         "host": os.environ.get("PGHOST", ""),
         "lakebase_connected": pg_ok,
         "tools_count": len(TOOLS),
+        "pools_active": list(_pools.keys()),
     }
     if _connection_mode == "autoscaling":
         info["project"] = os.environ.get("LAKEBASE_PROJECT", "")
@@ -1701,20 +1725,63 @@ async def health(request: Request):
     return JSONResponse({"status": "ok" if pg_ok else "degraded", "lakebase": pg_ok})
 
 
+class DatabaseRoutingMiddleware:
+    """ASGI middleware that routes /db/{database}/* requests.
+
+    Extracts the database name from the URL path, sets it in a context var,
+    and strips the /db/{database} prefix so Starlette routes normally.
+
+    Examples:
+        /db/supply_chain_db/mcp/   → database=supply_chain_db, path=/mcp/
+        /db/pm_db/api/tables       → database=pm_db, path=/api/tables
+        /db/my_db/health           → database=my_db, path=/health
+        /mcp/                      → no database override (uses default)
+    """
+    _DB_PATTERN = re.compile(r'^/db/([a-zA-Z_][a-zA-Z0-9_]*)(/.*)?$')
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            path = scope.get("path", "")
+            m = self._DB_PATTERN.match(path)
+            if m:
+                database = m.group(1)
+                remainder = m.group(2) or "/"
+                token = _request_database.set(database)
+                # Ensure pool exists for this database (lazy init)
+                if database not in _pools:
+                    try:
+                        _init_pg_pool(database)
+                    except Exception as e:
+                        logger.warning("Failed to init pool for %s: %s", database, e)
+                scope = dict(scope, path=remainder)
+                try:
+                    await self.app(scope, receive, send)
+                finally:
+                    _request_database.reset(token)
+                return
+        await self.app(scope, receive, send)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app: Starlette):
-    logger.info("Starting lakebase-mcp server")
+    logger.info("Starting lakebase-mcp server (multi-database mode)")
     try:
         _init_pg_pool()
-        logger.info("Lakebase pool ready")
+        logger.info("Default pool ready: %s (use /db/{database}/mcp/ for other databases)", _default_database)
     except Exception as e:
-        logger.warning("Lakebase pool init deferred: %s", e)
+        logger.warning("Default pool init deferred: %s", e)
     async with session_manager.run():
         yield
-    # Cleanup
-    if _pg_pool:
-        _pg_pool.closeall()
-        logger.info("Lakebase pool closed")
+    # Cleanup: close all database pools
+    for db_name, entry in _pools.items():
+        try:
+            entry["pool"].closeall()
+            logger.info("Pool closed: %s", db_name)
+        except Exception:
+            pass
 
 
 async def handle_mcp(scope, receive, send):
@@ -1756,6 +1823,7 @@ app = Starlette(
     lifespan=lifespan,
 )
 
+app.add_middleware(DatabaseRoutingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

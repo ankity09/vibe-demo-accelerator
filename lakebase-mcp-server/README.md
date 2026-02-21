@@ -15,20 +15,28 @@ A reusable [Model Context Protocol](https://modelcontextprotocol.io) (MCP) serve
 ## Architecture
 
 ```
-AI Agent (MAS / Claude Code / etc.)
-    |
-    | MCP Protocol (StreamableHTTP)
-    v
-Lakebase MCP Server (Databricks App)
-    |-- /          Web UI (explorer, SQL editor, tool playground, docs)
-    |-- /mcp/      MCP endpoint (stateless StreamableHTTP)
-    |-- /api/*     REST API (21 endpoints)
-    |-- /health    Health check
-    |
-    | psycopg2 (PostgreSQL wire protocol + auto token refresh)
-    v
-Lakebase Instance (Provisioned or Autoscaling)
+Demo A (MAS)                    Demo B (MAS)
+    |                               |
+    | base_path=/db/demo_a_db/mcp/  | base_path=/db/demo_b_db/mcp/
+    v                               v
+    ┌───────────────────────────────────────┐
+    │  Lakebase MCP Server (shared)         │
+    │  ── /db/{database}/mcp/  (per-demo)   │
+    │  ── /mcp/                (default)    │
+    │  ── /api/*               (REST)       │
+    │  ── /health              (check)      │
+    │                                       │
+    │  Per-database connection pools         │
+    │  (lazy-init, concurrent, auto-refresh) │
+    └───────────────┬───────────────────────┘
+                    | psycopg2
+                    v
+    Lakebase Instance (Provisioned or Autoscaling)
+        ├── demo_a_db
+        └── demo_b_db
 ```
+
+Deploy once, share across all demos. Each demo gets its own database with isolated connection pools.
 
 ## Connection Modes
 
@@ -312,14 +320,61 @@ The header includes a **database switcher** dropdown to switch between databases
 | `/api/transaction` | POST | Execute multi-statement transaction |
 | `/api/explain` | POST | EXPLAIN ANALYZE a query |
 
-## Reuse Across Demos
+## Multi-Database Routing (Shared Server)
 
-This server is fully generic. To point it at a different Lakebase database:
+Deploy this server **once** and share it across multiple demos. Each demo accesses its own database via URL-based routing — no code changes or redeployment of the MCP server needed.
 
-1. **Provisioned**: Change `instance_name` and `database_name` in `app.yaml`
-2. **Autoscaling**: Change the `LAKEBASE_PROJECT` / `LAKEBASE_DATABASE` env vars
+### URL Pattern
 
-No code changes needed. The web UI, MCP tools, and REST API work with any Lakebase database.
+| URL | Database | Use Case |
+|-----|----------|----------|
+| `/db/supply_chain_db/mcp/` | `supply_chain_db` | Demo A's MAS connection |
+| `/db/pm_maintenance_db/mcp/` | `pm_maintenance_db` | Demo B's MAS connection |
+| `/mcp/` | Default (from `app.yaml`) | Backward compatible / single-demo |
+
+All REST API and health endpoints also work with the database prefix: `/db/{database}/api/tables`, `/db/{database}/health`, etc.
+
+### How it works
+
+- **ASGI middleware** extracts the database name from `/db/{database}/...` URLs
+- **Per-database connection pools** are created lazily on first request (concurrent-safe)
+- **Token refresh** is per-pool — no interference between demos
+- **Table cache** is per-database — DDL in one demo doesn't affect another
+
+### Adding a new demo database
+
+```bash
+# 1. Register ALL databases (existing + new) as resources
+databricks apps update lakebase-mcp-server --json '{
+  "resources": [
+    {"name": "database", "database": {"instance_name": "<instance>", "database_name": "existing_db", "permission": "CAN_CONNECT_AND_CREATE"}},
+    {"name": "database-2", "database": {"instance_name": "<instance>", "database_name": "new_demo_db", "permission": "CAN_CONNECT_AND_CREATE"}}
+  ]
+}' --profile=<PROFILE>
+
+# 2. Redeploy to grant SP access
+databricks apps deploy lakebase-mcp-server --source-code-path <path> --profile=<PROFILE>
+
+# 3. Grant table access in the new database
+databricks psql <instance> --profile=<PROFILE> -- -d new_demo_db -c "
+GRANT ALL ON ALL TABLES IN SCHEMA public TO \"<mcp-sp-client-id>\";
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"<mcp-sp-client-id>\";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO \"<mcp-sp-client-id>\";
+"
+
+# 4. Create UC HTTP connection for the new demo
+#    base_path: /db/new_demo_db/mcp/
+```
+
+### UC HTTP Connection per demo
+
+Each demo gets its own UC HTTP connection pointing to the same MCP server with a different `base_path`:
+
+| Demo | base_path |
+|------|-----------|
+| Supply Chain | `/db/supply_chain_db/mcp/` |
+| Predictive Maintenance | `/db/pm_maintenance_db/mcp/` |
+| Credit Risk | `/db/credit_risk_db/mcp/` |
 
 ## Local Development
 
