@@ -17,58 +17,53 @@ Reusable scaffold for building customer demos on Databricks. Clone this repo onc
 ### 1. Clone the scaffold (one-time)
 
 ```bash
-git clone https://github.com/<your-org>/dbx-demo-scaffold.git ~/dbx-demo-scaffold
+git clone https://github.com/ankity09/dbx-demo-scaffold.git ~/dbx-demo-scaffold
 ```
 
-This is your **reference library** — don't build directly in this directory. Pull updates anytime with `git pull`.
+Pull updates anytime with `git pull`.
 
-### 2. Create a new demo
-
-```bash
-mkdir ~/demos/blue-origin-launch-ops && cd ~/demos/blue-origin-launch-ops
-```
-
-Name the folder whatever fits your demo. This will be a fresh project with its own git history.
-
-### 3. Open in vibe and run the setup wizard
+### 2. Open vibe in the scaffold directory
 
 ```bash
+cd ~/dbx-demo-scaffold
 vibe agent
 ```
 
-Then run the **`/new-demo`** slash command:
+**Important:** Open vibe from the scaffold directory — the `/new-demo` slash command lives in `.claude/commands/` and is only visible when vibe is opened here.
+
+### 3. Run the setup wizard
 
 ```
 /new-demo
 ```
 
-The wizard walks you through 5 phases:
+The wizard walks you through 8 phases — from Q&A to deployed app — all within a single command:
 
 | Phase | What it does | Time |
 |-------|-------------|------|
-| **1. Customer Discovery** | You provide the customer website + Salesforce UCO (or business problem). Vibe researches the company, extracts brand colors, finds industry challenges, and proposes a customer-specific demo story. | 5 min |
+| **1. Customer Discovery** | You provide the customer website + Salesforce UCO (or business problem). Vibe researches the company via web + Salesforce + Glean, extracts brand colors, cross-references use case keywords against the customer's own website, and proposes a customer-specific demo story. | 5 min |
 | **2. Infrastructure** | Workspace URL, CLI profile, catalog, schema, warehouse ID | 3 min |
 | **3. Data Model** | Entities and KPIs tailored to the customer's actual business (informed by Phase 1 research) | 5 min |
 | **4. AI Layer** | Genie tables, MAS persona, sub-agents, MCP server | 3 min |
 | **5. UI** | Layout, brand colors (auto-extracted from customer website), dashboard content, pages | 3 min |
+| **6. Plan & Approve** | Vibe enters plan mode — shows you exactly what files will be created and how. You approve before any code is generated. | 3 min |
+| **7. Build** | Code generation (parallelized with sub-agents for speed). Creates your new project directory with all files. | 5-10 min |
+| **8. Deploy** | 4-phase deployment: Delta Lake data → Lakebase → AI Layer → App Deploy. Verifies health and reports the final app URL. | 15-20 min |
 
-After each phase, your answers are saved to `demo-config.yaml` so nothing is lost. At the end, you'll see a full summary to approve before any code is generated.
+After each Q&A phase (1-5), your answers are saved to `demo-config.yaml` so nothing is lost.
 
-**Why the research step matters:** Instead of building a generic "manufacturing demo," vibe builds a demo that references the customer's actual products, facilities, challenges, and brand. The demo feels like it was built *for them*.
-
-Once approved, vibe will:
-1. Copy the core modules (Lakebase pool, MAS streaming, health check) to your project
-2. Fill in all config files with your answers (no TODOs left behind)
-3. Generate the data model, API routes, frontend pages, and agent prompts
-4. Walk you through deployment (create workspace resources, run notebooks, deploy app)
+**Why the research step matters:** Instead of building a generic "manufacturing demo," vibe builds a demo that references the customer's actual products, facilities, challenges, and brand. For example, if you say "Simplot + genomics," vibe searches `site:simplot.com genomics` to find what Simplot is actually doing with genomics, then uses that context to build a demo that feels like it was built *for them*.
 
 **Already know what you want?** You can skip the wizard and give vibe a direct prompt instead:
 
-> Using the scaffold at ~/dbx-demo-scaffold, build me a launch operations demo for Blue Origin. They manage rocket engine test campaigns across 3 test facilities with 50+ engine units. Key use cases: test campaign scheduling, anomaly detection from sensor telemetry during hot-fire tests, and post-test analysis automation. I want a dark theme with a sidebar nav and a dashboard showing upcoming test schedules and engine health scores.
+> Build me a launch operations demo for Blue Origin. They manage rocket engine test campaigns across 3 test facilities with 50+ engine units. Key use cases: test campaign scheduling, anomaly detection from sensor telemetry during hot-fire tests, and post-test analysis automation. I want a dark theme with a sidebar nav and a dashboard showing upcoming test schedules and engine health scores.
 
 ### 4. Initialize git in your new project
 
+After the wizard completes, your new demo is in a separate directory (e.g., `~/demos/blue-origin-launch-ops/`):
+
 ```bash
+cd ~/demos/blue-origin-launch-ops
 git init
 git add .
 git commit -m "Initial scaffold: Blue Origin Launch Ops demo"
@@ -104,6 +99,17 @@ The scaffold has 3 layers:
 - MAS agent prompts and Genie Space configuration
 - Talk track and demo narrative
 
+## Slash Commands
+
+The scaffold includes 4 slash commands (visible when vibe is opened in this directory):
+
+| Command | What it does |
+|---------|-------------|
+| **`/new-demo`** | Full setup wizard — 8 phases from customer research to deployed app. This is the main entry point. |
+| **`/deploy-demo`** | Quick redeploy after code changes. Syncs files, checks resources, deploys, verifies health. |
+| **`/demo-health`** | Run diagnostics on a deployed demo. Checks app status, resources, health endpoint, and offers automatic fixes. |
+| **`/demo-talk-track`** | Generate a structured talk track / demo script for presenting to the customer. |
+
 ## Using with AI Dev Kit
 
 This scaffold is designed to work alongside [Databricks AI Dev Kit](https://github.com/databricks-solutions/ai-dev-kit):
@@ -121,7 +127,10 @@ AI Dev Kit is the **how you build** (tools + knowledge). This scaffold is the **
 ```
 dbx-demo-scaffold/
 ├── .claude/commands/
-│   └── new-demo.md              # /new-demo wizard — 5-phase guided setup
+│   ├── new-demo.md              # /new-demo wizard — 8-phase guided setup
+│   ├── deploy-demo.md           # /deploy-demo — quick redeploy after changes
+│   ├── demo-health.md           # /demo-health — diagnostics & auto-fix
+│   └── demo-talk-track.md       # /demo-talk-track — generate presentation script
 ├── CLAUDE.md                    # Architecture, patterns, gotchas (vibe reads this)
 ├── README.md                    # You're here
 ├── app/

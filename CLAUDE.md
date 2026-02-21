@@ -283,22 +283,24 @@ function formatAgentName(name) {
 
 **CRITICAL: Data notebooks (steps 1-6) MUST run BEFORE the app deployment (step 12). If you deploy the app first, users will see an empty dashboard with no data. The app queries Delta Lake tables that don't exist until the notebooks create them.**
 
-### Phase A: Data + Infrastructure (do this FIRST)
+### Phase A: Delta Lake Data (do this FIRST)
 1. **Create catalog/schema** — Run `notebooks/01_setup_schema.sql`
 2. **Generate Delta Lake data** — Run `notebooks/02_generate_data.py` — **This creates the tables the app reads from**
 3. **Verify tables** — `SHOW TABLES IN <catalog>.<schema>` should list your domain tables
+
+### Phase B: Lakebase
 4. **Create Lakebase instance** — Use Databricks UI or CLI. Instance name uses HYPHENS not underscores.
 5. **Create database** — In the Lakebase instance
 6. **Apply schemas** — `databricks psql <instance> --profile=<profile> -- -d <db> -f lakebase/core_schema.sql` then `domain_schema.sql`
 7. **Seed Lakebase** — Run `notebooks/03_seed_lakebase.py` (uses `generate_database_credential()`, NOT `_header_factory`)
 
-### Phase B: AI Layer
+### Phase C: AI Layer
 8. **Create Genie Space** — Use UI, then PATCH to add `table_identifiers`
 9. **Grant Genie permissions** — `CAN_RUN` to app SP and users
 10. **Deploy Lakebase MCP Server** — Deploy `lakebase-mcp-server/` as a separate app, create UC HTTP connection (see Lakebase MCP section)
 11. **Create MAS** — POST to `/api/2.0/multi-agent-supervisors` with agent config (include Genie + MCP Lakebase connection)
 
-### Phase C: App Deployment (do this LAST)
+### Phase D: App Deployment (do this LAST)
 12. **Fill app.yaml** — Set warehouse ID, catalog, schema, MAS tile ID (first 8 chars), Lakebase instance/db
 13. **Deploy app** — `databricks apps deploy <name> --source-code-path <path> --profile=<profile>`
 14. **Register resources via API** — **CRITICAL: `app.yaml` resources are NOT automatically registered.** You MUST register them via the API, then redeploy:
