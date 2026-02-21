@@ -12,7 +12,7 @@ AI Agent (MAS / Claude Code / etc.)
 Lakebase MCP Server (Databricks App)
     |-- /          Web UI (database explorer, SQL editor, tool playground, docs)
     |-- /mcp/      MCP endpoint (stateless StreamableHTTP)
-    |-- /api/*     REST API (21 endpoints)
+    |-- /api/*     REST API (29 endpoints)
     |-- /health    Health check
     |
     | psycopg2 (PostgreSQL wire protocol + auto token refresh)
@@ -22,11 +22,11 @@ Lakebase Instance (Provisioned or Autoscaling)
 
 ## What It Provides
 
-- **16 MCP tools** for schema inspection, CRUD, general SQL, DDL, transactions, query analysis, and performance monitoring
+- **27 MCP tools** for schema inspection, CRUD, general SQL, DDL, transactions, query analysis, performance monitoring, infrastructure management, branching, and autoscaling
 - **2 MCP resources** for table and schema discovery
 - **3 MCP prompts** for database exploration, schema design, and query optimization
 - **Web UI** with database explorer, SQL editor, tool playground, and documentation
-- **REST API** (21 endpoints) for custom integrations
+- **REST API** (29 endpoints) for custom integrations
 - **Database switcher** to switch between databases without redeploying
 - Supports both **provisioned** and **autoscaling** Lakebase with automatic token refresh
 
@@ -137,7 +137,47 @@ databricks api patch "/api/2.0/multi-agent-supervisors/<tile-id>" --json '{
 
 **IMPORTANT:** PATCH requires the `name` field plus the full `agents` array, even if you're only updating one agent. The `<tile-id>` in the API path must be the **full UUID** (not the 8-char prefix used in the endpoint name). Discover it via `GET /api/2.0/serving-endpoints` and extract `tile_endpoint_metadata.tile_id`.
 
-## MCP Tools Reference (16)
+## Multi-Database Routing
+
+The Lakebase MCP Server supports per-database URL routing, allowing a single deployed app to serve multiple demos or databases concurrently without interference.
+
+### URL Pattern
+
+Each database is scoped via the `/db/{database}/` prefix:
+
+| Endpoint | Description |
+|----------|-------------|
+| `/db/{database}/mcp/` | MCP endpoint scoped to a specific database |
+| `/db/{database}/health` | Health check for that database's connection |
+| `/mcp/` | MCP endpoint using the default database (backward compatible) |
+| `/health` | Health check using the default database |
+
+### UC HTTP Connection Setup
+
+When creating a UC HTTP connection for a specific demo database, set the `base_path` to include the database name:
+
+```
+base_path = /db/my_demo_database/mcp/
+```
+
+This ensures all MCP tool calls from that MAS sub-agent are scoped to `my_demo_database` only.
+
+### Backward Compatibility
+
+The original `/mcp/` endpoint (without a `/db/` prefix) continues to work and routes to the default database configured in `app.yaml`. Existing UC HTTP connections with `base_path=/mcp/` do not need to be updated.
+
+### Per-Database Health Checks
+
+Use `/db/{database}/health` to verify connectivity to a specific database:
+
+```bash
+curl https://<app-url>/db/my_demo_database/health
+# {"status": "healthy", "database": "my_demo_database", ...}
+```
+
+This is useful when debugging multi-database setups to confirm each database's connection pool is active and authenticated.
+
+## MCP Tools Reference (27)
 
 | Category | Tool | Description |
 |----------|------|-------------|
@@ -157,6 +197,17 @@ databricks api patch "/api/2.0/multi-agent-supervisors/<tile-id>" --json '{
 | DDL | `drop_table` | DROP TABLE with confirm safety gate |
 | DDL | `alter_table` | Add/drop/rename/alter columns |
 | Perf | `list_slow_queries` | Top N slow queries |
+| Infra | `list_projects` | List all Lakebase projects |
+| Infra | `describe_project` | Project details and status |
+| Infra | `get_connection_string` | Full connection string for a database |
+| Infra | `list_branches` | List branches in a project |
+| Infra | `list_endpoints` | List compute endpoints |
+| Infra | `get_endpoint_status` | Endpoint health and metrics |
+| Branch | `create_branch` | Create a new branch from parent |
+| Branch | `delete_branch` | Delete a branch |
+| Scale | `configure_autoscaling` | Set min/max compute units |
+| Scale | `configure_scale_to_zero` | Enable/disable scale-to-zero |
+| Quality | `profile_table` | Column stats, nulls, cardinality |
 
 ## Known Gotchas
 
