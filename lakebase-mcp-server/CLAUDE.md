@@ -1,29 +1,23 @@
 # Lakebase MCP Server — Databricks App
 
-Reusable MCP server that exposes Lakebase (PostgreSQL) read/write operations as 16 MCP tools, 2 resources, and 3 prompts. Supports both provisioned Lakebase (via app.yaml database resource) and autoscaling Lakebase (via env vars). Token refresh is automatic. Deploy as a Databricks App, then connect it to a MAS Supervisor as an External MCP Server agent. Includes a web UI for exploring the database and testing tools.
+Reusable MCP server that exposes Lakebase (PostgreSQL) read/write operations as 27 MCP tools, 2 resources, and 3 prompts. Supports both provisioned Lakebase (via app.yaml database resource) and autoscaling Lakebase (via env vars). Token refresh is automatic. Deploy as a Databricks App, then connect it to a MAS Supervisor as an External MCP Server agent. Includes a web UI for exploring the database and testing tools.
 
 ## Architecture
 
 ```
-Demo A (MAS)                    Demo B (MAS)
-    |                               |
-    | base_path=/db/demo_a_db/mcp/  | base_path=/db/demo_b_db/mcp/
-    v                               v
-    ┌───────────────────────────────────┐
-    │  Lakebase MCP Server (shared)     │
-    │  ── /db/{database}/mcp/  (multi)  │
-    │  ── /mcp/                (default)│
-    │  ── /api/*               (REST)   │
-    │  ── /health              (check)  │
-    │                                   │
-    │  Per-database connection pools     │
-    │  (lazy-initialized, token refresh) │
-    └───────────────┬───────────────────┘
-                    | psycopg2
-                    v
-    Lakebase Instance (PostgreSQL-compatible)
-        ├── demo_a_db
-        └── demo_b_db
+AI Agent (MAS / Claude / etc.)
+    |
+    | MCP Protocol (StreamableHTTP)
+    v
+Lakebase MCP Server (Databricks App)
+    |-- /          Web UI (database explorer, SQL query, tool playground, docs)
+    |-- /mcp/      MCP endpoint (StreamableHTTP, stateless)
+    |-- /api/*     REST API (tables, query, insert, update, delete)
+    |-- /health    Health check
+    |
+    | psycopg2 (PostgreSQL wire protocol)
+    v
+Lakebase Instance (PostgreSQL-compatible)
 ```
 
 ## Connection Modes
@@ -59,7 +53,7 @@ env:
 
 No database resource needed — the server handles everything including endpoint discovery and token refresh.
 
-## MCP Tools (16)
+## MCP Tools (27)
 
 | Tool | Type | Description |
 |------|------|-------------|
@@ -79,6 +73,17 @@ No database resource needed — the server handles everything including endpoint
 | `batch_insert` | WRITE | Multi-row INSERT, JSONB-aware |
 | `list_schemas` | READ | List all schemas (not just public) |
 | `get_connection_info` | READ | Host/port/database/user (no password) |
+| `list_projects` | INFRA | List all Lakebase projects with status |
+| `describe_project` | INFRA | Project details + branches + endpoints |
+| `get_connection_string` | INFRA | Build psql/psycopg2/jdbc connection string for an endpoint |
+| `list_branches` | INFRA | List branches on a project with state |
+| `list_endpoints` | INFRA | List endpoints on a branch with host and compute config |
+| `get_endpoint_status` | INFRA | Endpoint state, host, compute configuration |
+| `create_branch` | BRANCH | Create a dev/test branch from a parent |
+| `delete_branch` | BRANCH | Delete a branch (not production) with confirm safety |
+| `configure_autoscaling` | SCALE | Set min/max compute units on an endpoint |
+| `configure_scale_to_zero` | SCALE | Enable/disable suspend + idle timeout |
+| `profile_table` | QUALITY | Column-level profiling: nulls, distinct, min/max, avg |
 
 ## MCP Resources (2)
 
@@ -116,61 +121,53 @@ No database resource needed — the server handles everything including endpoint
 | `/api/tables/alter` | POST | Alter a table |
 | `/api/databases` | GET | List available databases on the instance |
 | `/api/databases/switch` | POST | Switch to a different database |
+| `/api/projects` | GET | List all Lakebase projects |
+| `/api/projects/{id}` | GET | Describe a Lakebase project with branches |
+| `/api/branches` | GET | List branches on a project (?project=...) |
+| `/api/branches/create` | POST | Create a new branch |
+| `/api/branches/{name}` | DELETE | Delete a branch |
+| `/api/endpoints` | GET | List endpoints (?project=...&branch=...) |
+| `/api/endpoints/{name}/config` | PATCH | Configure autoscaling/scale-to-zero |
+| `/api/profile/{table}` | GET | Profile a table (column-level stats) |
 
 ## Web UI
 
-The root URL (`/`) serves a single-page application with 4 tabs:
+The root URL (`/`) serves a single-page application with Neon.tech-inspired sidebar navigation:
+
+**Database**
 1. **Database Explorer** — Browse tables, view schemas, sample data
 2. **SQL Query** — Execute read-only queries with tabular results
-3. **MCP Tools** — Tool reference + interactive playground to test each tool
-4. **Documentation** — Deployment guide, MAS connection instructions, gotchas
+3. **MCP Tools** — Tool reference + interactive playground to test each tool (categorized by type)
 
-The header includes a database switcher dropdown to switch between databases on the same Lakebase instance without redeployment.
+**Infrastructure**
+4. **Projects** — Card grid of Lakebase projects with status badges
+5. **Branches** — Branch management with create/delete operations
+6. **Endpoints** — Endpoint cards with autoscaling and scale-to-zero configuration
 
-## Multi-Database Routing (Shared MCP Server)
+**Quality**
+7. **Profiler** — Column-level data profiling (nulls, distinct, min/max, avg)
 
-Deploy ONE MCP server and share it across multiple demos. Each demo uses a different database on the same Lakebase instance via URL-based routing.
+**Reference**
+8. **Documentation** — Deployment guide, MAS connection instructions, gotchas
 
-### How it works
+The sidebar includes a database switcher dropdown and connection status indicator.
 
-- **`/db/{database}/mcp/`** — MCP endpoint scoped to a specific database
-- **`/mcp/`** — MCP endpoint using the default database (backward compatible)
-- Each database gets its own connection pool (lazy-initialized, concurrent-safe)
-- Token refresh is per-pool — no interference between demos
+Infrastructure tools use the `w.postgres.*` SDK methods and require autoscaling Lakebase or latest SDK. They return clear error messages when not available.
 
-### Adding a new demo's database
+## Reuse Across Demos
 
-1. **Register the database as a resource** on the shared MCP server app:
-```bash
-databricks apps update lakebase-mcp-server --json '{
-  "resources": [
-    {"name": "database", "database": {"instance_name": "my-instance", "database_name": "demo_a_db", "permission": "CAN_CONNECT_AND_CREATE"}},
-    {"name": "database-2", "database": {"instance_name": "my-instance", "database_name": "demo_b_db", "permission": "CAN_CONNECT_AND_CREATE"}}
-  ]
-}' --profile=<PROFILE>
-```
-**Important:** Include ALL database resources (existing + new) — the update replaces the array.
+Change the `instance_name` and `database_name` in `app/app.yaml`:
 
-2. **Redeploy** to grant the SP access to the new database:
-```bash
-databricks apps deploy lakebase-mcp-server --source-code-path <path> --profile=<PROFILE>
+```yaml
+resources:
+  - name: database
+    database:
+      instance_name: my-instance      # change per demo
+      database_name: my_database       # change per demo
+      permission: CAN_CONNECT_AND_CREATE
 ```
 
-3. **Grant table access** in the new database:
-```bash
-databricks psql my-instance --profile=<PROFILE> -- -d demo_b_db -c "
-GRANT ALL ON ALL TABLES IN SCHEMA public TO \"<mcp-sp-client-id>\";
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"<mcp-sp-client-id>\";
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO \"<mcp-sp-client-id>\";
-"
-```
-
-4. **Create a UC HTTP connection** for the new demo pointing to the shared server:
-   - URL: `https://<mcp-app-url>/db/demo_b_db/mcp/`
-   - Auth: Databricks OAuth M2M
-   - Connection fields: host, port=443, **base_path=/db/demo_b_db/mcp/**, client_id, client_secret, oauth_scope=all-apis
-
-No code changes or redeployment of the MCP server code needed — just resource registration + permissions.
+No code changes needed. The UI and tools work with any Lakebase database.
 
 ## Deployment
 
@@ -225,9 +222,9 @@ Visit `https://<app-url>/` for the web UI.
 ## Connecting to MAS
 
 1. Create a UC HTTP connection:
-   - URL: `https://<mcp-app-url>/db/<database_name>/mcp` (for shared server) or `https://<mcp-app-url>/mcp` (for single-database)
+   - URL: `https://<mcp-app-url>/mcp`
    - Auth: Databricks OAuth M2M (SP OAuth secret from Account Console)
-   - Connection fields: host, port=443, **base_path=/db/<database_name>/mcp/** (or /mcp/ for single-database), client_id, client_secret, oauth_scope=all-apis
+   - Connection fields: host, port=443, base_path=/mcp/, client_id, client_secret, oauth_scope=all-apis
 
 2. In MAS Supervisor config, add agent:
    - Type: **External MCP Server**
@@ -244,8 +241,7 @@ Visit `https://<app-url>/` for the web UI.
 4. **OAuth M2M for UC connection:** SP OAuth secrets must be created at Account Console level.
 5. **CAN_USE for users group:** MAS MCP proxy needs CAN_USE on the app. Grant to `users` group.
 6. **Autoscaling scale-to-zero:** If the autoscaling endpoint is suspended, the first request may take 2-5 seconds while compute wakes up.
-7. **Multi-database pools:** Each database gets its own connection pool (lazy-initialized). Pools are concurrent-safe — multiple demos can use the same MCP server simultaneously. The web UI database switcher changes the default database (for `/mcp/` endpoint).
-8. **Adding databases to shared server:** Register as a resource via `databricks apps update`, then redeploy to grant SP access. Include ALL resources in the update (it replaces the array).
+7. **Database switcher:** Switching databases reinitializes the connection pool. The table cache is cleared automatically.
 
 ## Local Development
 
