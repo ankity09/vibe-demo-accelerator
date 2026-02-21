@@ -189,6 +189,15 @@ Tell the user: "Now let's set up the Databricks infrastructure."
 **2.6 SQL Warehouse ID** — What's the SQL warehouse ID?
 - Tell them where to find it: Workspace → SQL Warehouses → click the warehouse → copy the ID from the URL or details page.
 
+**2.7 Shared Lakebase MCP Server** — Do you already have a shared Lakebase MCP server deployed (`lakebase-mcp-server` app)?
+- Options: "Yes, it's already deployed", "No, this is the first demo"
+- If YES:
+  - **2.7a MCP App URL** — What's the Lakebase MCP server app URL? (e.g., `https://lakebase-mcp-server-<hash>.cloud.databricks.com`)
+  - **2.7b MCP App SP Client ID** — What's the service principal client ID for the MCP app? (Find this in Workspace → Apps → lakebase-mcp-server → Settings, or from `databricks apps get lakebase-mcp-server`)
+  - Explain: "Since the shared MCP server already exists, I'll add your new demo's database as a resource and create a UC HTTP connection with database routing (`/db/<database>/mcp/`)."
+- If NO:
+  - Explain: "I'll deploy the shared Lakebase MCP server for the first time during Phase 8C. It's named `lakebase-mcp-server` (not per-demo) and supports multi-database routing so future demos can reuse it."
+
 **After collecting all answers**, append to `demo-config.yaml`:
 ```yaml
 # Phase 2: Infrastructure
@@ -198,6 +207,10 @@ infrastructure:
   catalog: "<answer>"
   schema: "<answer>"
   sql_warehouse_id: "<answer>"
+  shared_mcp_server:
+    exists: true|false
+    app_url: "<answer if exists>"
+    sp_client_id: "<answer if exists>"
 ```
 
 Show summary and ask: "Phase 2 complete. Does this look right?"
@@ -288,11 +301,11 @@ ai_layer:
     - "<table 2>"
   mas_persona: "<description>"
   sub_agents:
-    - type: "genie_space"
+    - type: "genie-space"  # MAS agent_type uses kebab-case
       description: "<what it queries>"
-    - type: "lakebase_mcp"
+    - type: "external-mcp-server"  # Lakebase MCP connection
       description: "<what it writes>"
-    - type: "knowledge_assistant"  # if selected
+    - type: "knowledge-assistant"  # if selected
       description: "<what docs it knows>"
   deploy_lakebase_mcp: true
 ```
@@ -516,12 +529,96 @@ Tell the user: "Deploying Phase C — setting up the AI agents."
 
 **`[PARALLEL]` — Launch simultaneously:**
 - **Task 1:** Create Genie Space, PATCH table_identifiers, grant CAN_RUN
-- **Task 2:** Deploy Lakebase MCP Server as a separate app (if selected in Phase 4)
-- **Task 3:** Create MAS with agent config (after Genie + MCP are ready — may need to wait)
+- **Task 2:** Set up Lakebase MCP Server (shared — see below)
 
-Sequential after parallel:
-1. Create UC HTTP connection for MCP server (needs MCP app URL)
-2. Create MAS with all sub-agents (needs Genie Space ID + MCP connection ID)
+**Lakebase MCP Server (shared — deploy once, reuse across demos):**
+
+The MCP server is named `lakebase-mcp-server` (NOT per-demo). It supports multi-database routing via `/db/{database}/mcp/`.
+
+1. **Check if the shared MCP server already exists** (use answer from Phase 2.7, or verify now):
+   ```bash
+   databricks apps get lakebase-mcp-server --profile=<profile>
+   ```
+
+2. **If it exists (second+ demo):**
+   a. Get the existing app's resources to know what databases are already registered:
+      ```bash
+      databricks apps get lakebase-mcp-server --profile=<profile>
+      ```
+      Look at the `resources` array to find all currently registered databases.
+   b. Add the new demo's database to the resources array — **you MUST include ALL existing databases** (the update replaces the entire array, not appends):
+      ```bash
+      databricks apps update lakebase-mcp-server --json '{
+        "resources": [
+          {"name": "database", "database": {"instance_name": "<instance>", "database_name": "<existing_db_1>", "permission": "CAN_CONNECT_AND_CREATE"}},
+          {"name": "database-2", "database": {"instance_name": "<instance>", "database_name": "<existing_db_2>", "permission": "CAN_CONNECT_AND_CREATE"}},
+          {"name": "database-N", "database": {"instance_name": "<instance>", "database_name": "<new_demo_db>", "permission": "CAN_CONNECT_AND_CREATE"}}
+        ]
+      }' --profile=<profile>
+      ```
+   c. **Redeploy** to grant SP access to the new database (resource registration alone does NOT grant access):
+      ```bash
+      databricks apps deploy lakebase-mcp-server --source-code-path /Workspace/Users/<you>/lakebase-mcp-server/app --profile=<profile>
+      ```
+   d. Grant table access to the MCP server's SP in the new database:
+      ```bash
+      databricks psql <instance> --profile=<profile> -- -d <new_demo_db> -c "
+      GRANT ALL ON ALL TABLES IN SCHEMA public TO \"<mcp-app-sp-client-id>\";
+      GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"<mcp-app-sp-client-id>\";
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO \"<mcp-app-sp-client-id>\";
+      "
+      ```
+   e. Create a UC HTTP connection for this demo with database routing:
+      - **Type:** HTTP
+      - **base_path:** `/db/<new_demo_database>/mcp/` (routes to this demo's database)
+      - **Auth:** Databricks OAuth M2M (`client_id`, `client_secret`, `oauth_scope=all-apis`)
+      - **host:** `<mcp-app-url>`, **port:** `443`
+
+3. **If it does NOT exist (first demo):**
+   a. Update `lakebase-mcp-server/app/app.yaml` with the Lakebase instance and database names
+   b. Create the app:
+      ```bash
+      databricks apps create lakebase-mcp-server --profile=<profile>
+      ```
+   c. Sync and deploy:
+      ```bash
+      databricks sync ./lakebase-mcp-server/app /Workspace/Users/<you>/lakebase-mcp-server/app --profile=<profile> --watch=false
+      databricks apps deploy lakebase-mcp-server --source-code-path /Workspace/Users/<you>/lakebase-mcp-server/app --profile=<profile>
+      ```
+   d. Register the database resource via API:
+      ```bash
+      databricks apps update lakebase-mcp-server --json '{
+        "resources": [
+          {"name": "database", "database": {"instance_name": "<instance>", "database_name": "<database>", "permission": "CAN_CONNECT_AND_CREATE"}}
+        ]
+      }' --profile=<profile>
+      ```
+   e. **Redeploy** after resource registration (required for SP access):
+      ```bash
+      databricks apps deploy lakebase-mcp-server --source-code-path /Workspace/Users/<you>/lakebase-mcp-server/app --profile=<profile>
+      ```
+   f. Grant CAN_USE to users group (required for MAS proxy):
+      ```bash
+      databricks api patch /api/2.0/permissions/apps/lakebase-mcp-server \
+        --json '{"access_control_list":[{"group_name":"users","permission_level":"CAN_USE"}]}' \
+        --profile=<profile>
+      ```
+   g. Grant table access to the app's SP:
+      ```bash
+      databricks psql <instance> --profile=<profile> -- -d <database> -c "
+      GRANT ALL ON ALL TABLES IN SCHEMA public TO \"<mcp-app-sp-client-id>\";
+      GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"<mcp-app-sp-client-id>\";
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO \"<mcp-app-sp-client-id>\";
+      "
+      ```
+   h. Create a UC HTTP connection for this demo:
+      - **Type:** HTTP
+      - **base_path:** `/db/<database>/mcp/` (database routing path)
+      - **Auth:** Databricks OAuth M2M (`client_id`, `client_secret`, `oauth_scope=all-apis`)
+      - **host:** `<mcp-app-url>`, **port:** `443`
+
+**Sequential after parallel (requires Genie Space ID + MCP connection ID):**
+1. Create MAS with all sub-agents (include Genie Space + Lakebase MCP connection)
 
 Report: "Phase C complete — Genie Space, MAS, and Lakebase MCP server deployed."
 

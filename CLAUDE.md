@@ -69,7 +69,7 @@ databricks current-user me --profile=<name>
 - **Lakebase Instance:** TODO (use hyphens, NOT underscores)
 - **Lakebase Database:** TODO
 - **Lakebase MCP App Name:** TODO (e.g., `<demo-name>-lakebase-mcp`)
-- **MAS Tile ID:** TODO (first 8 chars of tile_id)
+- **MAS Tile ID:** TODO (first 8 chars of tile_id — see Gotcha #24 for discovery)
 
 ## Architecture — 3 Layers
 
@@ -84,7 +84,7 @@ databricks current-user me --profile=<name>
 `lakebase-mcp-server/` — Standalone Lakebase MCP server deployed as a separate Databricks App.
 - `mcp_server.py` — 16 MCP tools (CRUD, DDL, SQL, transactions) + web UI
 - `app.yaml` — Template pointing to Lakebase instance
-- Deployed separately, wired to MAS as an `mcp_connection` sub-agent for writes
+- Deployed separately, wired to MAS as an `external-mcp-server` sub-agent for writes
 
 ### Layer 2: SKELETON (fill placeholders)
 - `app/app.yaml` — Deployment config with TODO placeholders
@@ -303,10 +303,10 @@ function formatAgentName(name) {
 7. **Seed Lakebase** — Run `notebooks/03_seed_lakebase.py` (uses `generate_database_credential()`, NOT `_header_factory`)
 
 ### Phase C: AI Layer
-8. **Create Genie Space** — Use UI, then PATCH to add `table_identifiers`
-9. **Grant Genie permissions** — `CAN_RUN` to app SP and users
+8. **Create Genie Space** — Two-step API pattern: POST with `serialized_space` to create a blank space, then PATCH to add title, description, `table_identifiers`, and instructions (see Gotcha #10 for full commands)
+9. **Grant Genie permissions** — `CAN_RUN` to app SP and users via `PATCH /api/2.0/permissions/genie/<space_id>` (note: just `genie`, NOT `genie/spaces` -- see Gotcha #11)
 10. **Deploy Lakebase MCP Server** — Deploy `lakebase-mcp-server/` as a separate app, create UC HTTP connection (see Lakebase MCP section)
-11. **Create MAS** — POST to `/api/2.0/multi-agent-supervisors` with agent config (include Genie + MCP Lakebase connection)
+11. **Create MAS** — POST to `/api/2.0/multi-agent-supervisors` with agent config. Agent types use **kebab-case**: `genie-space` (with `genie_space.id`), `external-mcp-server` (with `mcp_connection.mcp_connection_id`), `knowledge-assistant`, `unity-catalog-function`. After creation, discover the full tile UUID via serving endpoints (see Gotcha #22).
 
 ### Phase D: App Deployment (do this LAST)
 12. **Fill app.yaml** — Set warehouse ID, catalog, schema, MAS tile ID (first 8 chars), Lakebase instance/db
@@ -344,10 +344,10 @@ The Lakebase OAuth token expires periodically. The core pool catches BOTH `psyco
 The MAS serving endpoint name is: `mas-{first_8_chars_of_tile_id}-endpoint`. Use the short 8-char prefix as `MAS_TILE_ID` in `app.yaml`, NOT the full UUID.
 
 ### 3. MAS PATCH requires full agents array
-When updating MAS instructions via PATCH `/api/2.0/multi-agent-supervisors/{tile_id}`, you must include `name` AND the complete `agents` array, even if you're only changing instructions.
+When updating MAS instructions via PATCH `/api/2.0/multi-agent-supervisors/{tile_id}`, you must include `name` AND the complete `agents` array, even if you're only changing instructions. **IMPORTANT:** The `{tile_id}` in the API path must be the **full UUID**, not the 8-char prefix used in the endpoint name. Agent types use **kebab-case**: `genie-space`, `external-mcp-server`, `knowledge-assistant`, `unity-catalog-function`.
 
-### 4. MCP create_or_update_mas doesn't support UC functions
-The Databricks MCP tool for MAS doesn't support `unity_catalog_function` or `mcp_connection` agent types. Use the REST API directly for MAS configs that include these.
+### 4. MCP create_or_update_mas doesn't support all agent types
+The Databricks MCP tool for MAS doesn't support `unity-catalog-function` or `external-mcp-server` agent types. Use the REST API directly for MAS configs that include these. Note: agent types use kebab-case (`external-mcp-server`, not `mcp_connection`).
 
 ### 5. Lakebase instance uses hyphens
 Instance names use hyphens (e.g., `my-demo-db`), NOT underscores. The Lakebase API will reject names with underscores.
@@ -377,20 +377,60 @@ columns = getattr(manifest, "columns", None) or getattr(manifest.schema, "column
 ### 9. `databricks apps update` replaces all resources
 PATCH/update to app resources replaces the entire resources array. Always include ALL resources in the update, not just the new one.
 
-### 10. Genie Space table_identifiers
-The UI doesn't always save table_identifiers correctly. Always PATCH the Genie Space via API to add tables:
+### 10. Genie Space creation requires two-step POST+PATCH
+The `POST /api/2.0/genie/spaces` endpoint does NOT accept `title`, `description`, or `table_identifiers` directly. It requires a `serialized_space` field. You must create a blank space first, then PATCH to configure it.
+
 ```bash
-databricks api patch /api/2.0/genie/spaces/{space_id} --json '{"table_identifiers": [{"catalog":"...", "schema":"...", "table":"..."}]}'
+# Step 1: Create a blank Genie Space
+databricks api post /api/2.0/genie/spaces --json '{
+  "serialized_space": "{\"version\": 2}",
+  "warehouse_id": "<warehouse-id>"
+}' --profile=<profile>
+# Returns: {"space_id": "abc123..."}
+
+# Step 2: PATCH to add title, description, and tables
+databricks api patch /api/2.0/genie/spaces/<space_id> --json '{
+  "title": "My Demo Data Space",
+  "description": "Query data about ...",
+  "table_identifiers": [
+    {"catalog": "my_catalog", "schema": "my_schema", "table": "table1"},
+    {"catalog": "my_catalog", "schema": "my_schema", "table": "table2"}
+  ]
+}' --profile=<profile>
+
+# Step 3: PATCH to add instructions (optional but recommended)
+databricks api patch /api/2.0/genie/spaces/<space_id> --json '{
+  "instructions": "You are a data assistant for ... Use these terms: ..."
+}' --profile=<profile>
 ```
+
+**Common mistake:** Passing `title`/`table_identifiers` in the POST body -- they are silently ignored and the space is created without tables.
 
 ### 11. Grant CAN_RUN on Genie Space
 The app SP needs CAN_RUN permission on the Genie Space. Also grant to the `account users` group for demo users.
 
-### 12. UC function agents in MAS
-UC function agents use this format in the MAS config:
-```json
-{"agent_type": "unity_catalog_function", "unity_catalog_function": {"uc_path": {"catalog": "...", "schema": "...", "name": "..."}}}
+**IMPORTANT:** The permissions endpoint is `/api/2.0/permissions/genie/{space_id}` -- note it is just `genie`, NOT `genie/spaces`.
+```bash
+# CORRECT endpoint:
+databricks api patch /api/2.0/permissions/genie/<space_id> --json '{
+  "access_control_list": [
+    {"group_name": "users", "permission_level": "CAN_RUN"}
+  ]
+}' --profile=<profile>
+
+# WRONG (returns 404):
+# databricks api patch /api/2.0/permissions/genie/spaces/<space_id> ...
 ```
+
+### 12. MAS agent types use kebab-case
+All MAS agent types use **kebab-case**, not snake_case. The correct formats are:
+```json
+{"agent_type": "genie-space", "genie_space": {"id": "..."}}
+{"agent_type": "knowledge-assistant", "knowledge_assistant": {"knowledge_assistant_id": "..."}}
+{"agent_type": "unity-catalog-function", "unity_catalog_function": {"uc_path": {"catalog": "...", "schema": "...", "name": "..."}}}
+{"agent_type": "external-mcp-server", "mcp_connection": {"mcp_connection_id": "..."}}
+```
+**Common mistake:** Using `databricks_genie` instead of `genie-space`, or `mcp_connection` instead of `external-mcp-server`.
 
 ### 13. Empty app = data notebooks not run
 If the app dashboard shows empty/zero metrics, the Delta Lake tables don't exist yet. You MUST run `02_generate_data.py` BEFORE deploying the app. The app queries tables that this notebook creates.
@@ -410,14 +450,44 @@ MAS External MCP Server goes through a Databricks MCP proxy that authenticates a
 ### 18. OAuth M2M for UC HTTP Connection
 For the UC HTTP connection to the Lakebase MCP server, use Databricks OAuth M2M (not PAT). SP OAuth secrets must be created at the **Account Console** level (not workspace API). Connection fields: `host`, `port=443`, `base_path=/mcp/`, `client_id`, `client_secret`, `oauth_scope=all-apis`.
 
+**CRITICAL: The `host` field MUST include the `https://` scheme.** Without it, you get a "Missing cloud file system scheme" error.
+```
+# CORRECT:
+host = "https://my-app.aws.databricksapps.com"
+
+# WRONG (causes "Missing cloud file system scheme" error):
+host = "my-app.aws.databricksapps.com"
+```
+
 ### 19. Agent Workflows page requires Lakebase tables
 The Agent Workflows page fetches data from `/api/agent-overview`, which queries the Lakebase `workflows` and `agent_actions` tables (from `core_schema.sql`). If Lakebase is not set up, the page shows zeros or errors. **You MUST create the Lakebase instance, database, and apply `core_schema.sql` BEFORE deploying the app.** The frontend `loadAgentPage()` function calls the `/api/agent-overview` endpoint — if you leave it with placeholder/hardcoded values, the KPIs will be misleading.
 
 ### 20. Frontend has no dashboard — vibe must build it
 The scaffold template only includes two starter pages (AI Chat + Agent Workflows). There is NO dashboard page by default. Vibe must generate the dashboard, layout, and domain pages based on the user's preferences. See the "Frontend Generation Flow" section for what to ask before building.
 
-### 21. PGHOST not set after resource PATCH — must redeploy
+### 21. Statement Execution API only supports single statements
+The Databricks Statement Execution API (`POST /api/2.0/sql/statements`) executes a **single** SQL statement per request. Sending multiple statements separated by `;` fails with a parse error. The notebook UI splits on `-- COMMAND ----------` markers and sends each cell individually, so multi-statement `.sql` files work fine in the notebook UI but fail when executed via API or CLI. When automating notebook execution via API, send each statement as a separate API call.
+
+### 22. Serverless notebook SDK missing `w.database` — upgrade first
+The serverless notebook runtime ships an older `databricks-sdk` that does NOT include the `w.database` module. Calling `w.database.generate_database_credential()` throws `AttributeError: 'WorkspaceClient' object has no attribute 'database'`. **Fix:** Add `%pip install --upgrade databricks-sdk` as the first cell and restart the Python interpreter (`dbutils.library.restartPython()`). Alternatively, skip the notebook entirely and seed Lakebase via local CLI: `databricks psql <instance> --profile=<profile> -- -d <database> -f /tmp/seed.sql`.
+
+### 23. PGHOST not set after resource PATCH — must redeploy
 If you add a `database` resource via `databricks api patch /api/2.0/apps/<name>` AFTER deploying, the app crashes with `psycopg2.OperationalError: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432"`. Databricks Apps only inject `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER` env vars **at deploy time**. A resource PATCH alone does NOT inject them. **Fix: Always redeploy after adding or changing resources.** The core `lakebase.py` guards against this — if `PGHOST` is empty, the pool is skipped and a clear warning is logged instead of crashing.
+
+### 24. MAS tile ID discovery — no list endpoint
+There is **NO list endpoint** for Multi-Agent Supervisors. To find the MAS tile ID after creation:
+1. `GET /api/2.0/serving-endpoints` — list all serving endpoints
+2. Find the one named `mas-{8chars}-endpoint`
+3. Extract `tile_endpoint_metadata.tile_id` from the endpoint object — this is the **full UUID**
+4. Use the **full UUID** for GET/PATCH: `/api/2.0/multi-agent-supervisors/{full-uuid}`
+
+**Common mistake:** Using the 8-char prefix as the tile ID in API calls. The 8-char prefix is only for the endpoint name. The REST API requires the full UUID.
+
+```bash
+# Example: discover the MAS tile ID
+databricks api get /api/2.0/serving-endpoints --profile=<profile> | \
+  jq '.endpoints[] | select(.name | startswith("mas-")) | .tile_endpoint_metadata.tile_id'
+```
 
 ## Lakebase MCP Server Deployment
 
@@ -473,15 +543,15 @@ Create a Unity Catalog connection for each demo pointing to the shared MCP serve
 - **Type:** HTTP
 - **URL:** `https://<mcp-app-url>/db/<database_name>/mcp/` (database name in the path)
 - **Auth:** Databricks OAuth M2M
-- **Connection fields:** `host`, `port=443`, `base_path=/db/<database_name>/mcp/`, `client_id`, `client_secret`, `oauth_scope=all-apis`
+- **Connection fields:** `host` (**must include `https://`** -- see Gotcha #18), `port=443`, `base_path=/db/<database_name>/mcp/`, `client_id`, `client_secret`, `oauth_scope=all-apis`
 
 For backward compatibility, `base_path=/mcp/` still works (uses the default database from `app.yaml`).
 
 ### Wire to MAS
-In `agent_bricks/mas_config.json`, add:
+In `agent_bricks/mas_config.json`, add (note: `agent_type` uses kebab-case):
 ```json
 {
-  "agent_type": "mcp_connection",
+  "agent_type": "external-mcp-server",
   "mcp_connection": {
     "mcp_connection_id": "<connection-id-from-above>"
   },

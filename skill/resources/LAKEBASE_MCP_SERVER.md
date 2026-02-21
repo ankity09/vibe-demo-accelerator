@@ -124,7 +124,7 @@ databricks api patch "/api/2.0/multi-agent-supervisors/<tile-id>" --json '{
   "name": "my-supervisor",
   "agents": [
     {
-      "agent_type": "mcp_connection",
+      "agent_type": "external-mcp-server",
       "mcp_connection": {
         "mcp_connection_id": "<connection-id>"
       },
@@ -135,7 +135,7 @@ databricks api patch "/api/2.0/multi-agent-supervisors/<tile-id>" --json '{
 }' --profile <PROFILE>
 ```
 
-**IMPORTANT:** PATCH requires the `name` field plus the full `agents` array, even if you're only updating one agent.
+**IMPORTANT:** PATCH requires the `name` field plus the full `agents` array, even if you're only updating one agent. The `<tile-id>` in the API path must be the **full UUID** (not the 8-char prefix used in the endpoint name). Discover it via `GET /api/2.0/serving-endpoints` and extract `tile_endpoint_metadata.tile_id`.
 
 ## MCP Tools Reference (16)
 

@@ -1,12 +1,22 @@
 {
   "$schema": "Template — Genie Space configuration",
   "$instructions": [
-    "1. Create a Genie Space in the Databricks UI",
-    "2. Add your Delta Lake tables as data sources",
-    "3. PATCH the Genie Space to add table_identifiers (UI doesn't always save these):",
-    "   databricks api patch /api/2.0/genie/spaces/{space_id} --json '{\"table_identifiers\": [...]}'",
-    "4. Grant CAN_RUN to the app service principal AND the users who will use the demo",
-    "5. Reference the Genie Space ID in the MAS config"
+    "Genie Space creation requires a two-step API pattern (POST cannot accept title/tables directly):",
+    "",
+    "Step 1: Create a blank Genie Space via POST:",
+    "  databricks api post /api/2.0/genie/spaces --json '{\"serialized_space\": \"{\\\"version\\\": 2}\", \"warehouse_id\": \"<warehouse-id>\"}' --profile=<profile>",
+    "  # Returns: {\"space_id\": \"abc123...\"}",
+    "",
+    "Step 2: PATCH to add title, description, and tables:",
+    "  databricks api patch /api/2.0/genie/spaces/<space_id> --json '{\"title\": \"...\", \"description\": \"...\", \"table_identifiers\": [...]}' --profile=<profile>",
+    "",
+    "Step 3: PATCH to add instructions (optional but recommended):",
+    "  databricks api patch /api/2.0/genie/spaces/<space_id> --json '{\"instructions\": \"...\"}' --profile=<profile>",
+    "",
+    "Step 4: Grant CAN_RUN permissions (note: endpoint is /permissions/genie/{id}, NOT /permissions/genie/spaces/{id}):",
+    "  databricks api patch /api/2.0/permissions/genie/<space_id> --json '{\"access_control_list\": [{\"group_name\": \"users\", \"permission_level\": \"CAN_RUN\"}]}' --profile=<profile>",
+    "",
+    "Step 5: Reference the Genie Space ID in the MAS config (agent_type: genie-space)"
   ],
   "name": "TODO Demo Data",
   "description": "Natural language interface to TODO demo Delta Lake tables",

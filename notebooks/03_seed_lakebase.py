@@ -1,13 +1,35 @@
 # Databricks notebook source
 # Demo Scaffold — Seed Lakebase with operational data
 # Run AFTER 02_generate_data.py and after creating the Lakebase instance/schema.
+#
+# ═══════════════════════════════════════════════════════════════════════════
+# IMPORTANT: Serverless SDK may be missing w.database
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# The serverless notebook runtime ships an older databricks-sdk that does NOT
+# include the `w.database` module.  You will get:
+#     AttributeError: 'WorkspaceClient' object has no attribute 'database'
+#
+# APPROACH A (recommended): Upgrade the SDK in the first cell below, then
+#   restart the Python interpreter.  This adds the database module.
+#
+# APPROACH B (fallback — skip this notebook entirely): Seed via local CLI:
+#   1. Generate seed SQL into a local file (e.g., /tmp/seed.sql)
+#   2. Run:
+#      databricks psql <instance> --profile=<profile> -- -d <database> -f /tmp/seed.sql
+#   This avoids the SDK issue completely and works from any machine with the
+#   Databricks CLI installed.
+#
+# ═══════════════════════════════════════════════════════════════════════════
 
 # COMMAND ----------
 
-# MAGIC %pip install psycopg2-binary
+# MAGIC %pip install --upgrade databricks-sdk psycopg2-binary
 
 # COMMAND ----------
 
+# IMPORTANT: You MUST restart the Python interpreter after upgrading the SDK.
+# The new w.database module is only available after a fresh import.
 dbutils.library.restartPython()
 
 # COMMAND ----------
@@ -31,6 +53,8 @@ token = cred.token
 # DO NOT use w.config._header_factory in notebooks — those tokens are NOT
 # valid for Lakebase PG connections. _header_factory only works inside
 # Databricks Apps where PGHOST/PGUSER are injected by the app resource system.
+#
+# If you still get AttributeError after upgrading, use Approach B (CLI) above.
 #
 # ═══════════════════════════════════════════════════════════════════════════
 
