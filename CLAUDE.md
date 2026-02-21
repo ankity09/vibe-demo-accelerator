@@ -303,7 +303,7 @@ function formatAgentName(name) {
 7. **Seed Lakebase** — Run `notebooks/03_seed_lakebase.py` (uses `generate_database_credential()`, NOT `_header_factory`)
 
 ### Phase C: AI Layer
-8. **Create Genie Space** — Two-step API pattern: POST with `serialized_space` to create a blank space, then PATCH to add title, description, `table_identifiers`, and instructions (see Gotcha #10 for full commands)
+8. **Create Genie Space** — POST with `serialized_space` to create a blank space, then PATCH title/description, then PATCH tables via `serialized_space` with sorted dotted identifiers (NOT `table_identifiers` — that field is silently ignored). Verify with `?include_serialized_space=true`. See Gotcha #10 for full commands.
 9. **Grant Genie permissions** — `CAN_RUN` to app SP and users via `PATCH /api/2.0/permissions/genie/<space_id>` (note: just `genie`, NOT `genie/spaces` -- see Gotcha #11)
 10. **Deploy Lakebase MCP Server** — Deploy `lakebase-mcp-server/` as a separate app, create UC HTTP connection (see Lakebase MCP section)
 11. **Create MAS** — POST to `/api/2.0/multi-agent-supervisors` with agent config. Agent types use **kebab-case**: `genie-space` (with `genie_space.id`), `external-mcp-server` (with `mcp_connection.mcp_connection_id`), `knowledge-assistant`, `unity-catalog-function`. After creation, discover the full tile UUID via serving endpoints (see Gotcha #22).
@@ -377,8 +377,8 @@ columns = getattr(manifest, "columns", None) or getattr(manifest.schema, "column
 ### 9. `databricks apps update` replaces all resources
 PATCH/update to app resources replaces the entire resources array. Always include ALL resources in the update, not just the new one.
 
-### 10. Genie Space creation requires two-step POST+PATCH
-The `POST /api/2.0/genie/spaces` endpoint does NOT accept `title`, `description`, or `table_identifiers` directly. It requires a `serialized_space` field. You must create a blank space first, then PATCH to configure it.
+### 10. Genie Space creation — tables MUST use serialized_space format
+The Genie Space API is full of silent-failure traps. Both POST and PATCH silently ignore `table_identifiers` — tables only work via the `serialized_space` JSON string field with dotted three-part identifiers, sorted alphabetically.
 
 ```bash
 # Step 1: Create a blank Genie Space
@@ -388,23 +388,34 @@ databricks api post /api/2.0/genie/spaces --json '{
 }' --profile=<profile>
 # Returns: {"space_id": "abc123..."}
 
-# Step 2: PATCH to add title, description, and tables
+# Step 2: PATCH title and description (these fields work directly)
 databricks api patch /api/2.0/genie/spaces/<space_id> --json '{
   "title": "My Demo Data Space",
-  "description": "Query data about ...",
-  "table_identifiers": [
-    {"catalog": "my_catalog", "schema": "my_schema", "table": "table1"},
-    {"catalog": "my_catalog", "schema": "my_schema", "table": "table2"}
-  ]
+  "description": "Query data about ..."
 }' --profile=<profile>
 
-# Step 3: PATCH to add instructions (optional but recommended)
+# Step 3: PATCH tables via serialized_space (ONLY way that works)
+# Tables must be dotted 3-part names, SORTED ALPHABETICALLY
+databricks api patch /api/2.0/genie/spaces/<space_id> --json '{
+  "serialized_space": "{\"version\":2,\"data_sources\":{\"tables\":[{\"identifier\":\"my_catalog.my_schema.table1\"},{\"identifier\":\"my_catalog.my_schema.table2\"}]}}"
+}' --profile=<profile>
+
+# Step 4: PATCH instructions (optional but recommended)
 databricks api patch /api/2.0/genie/spaces/<space_id> --json '{
   "instructions": "You are a data assistant for ... Use these terms: ..."
 }' --profile=<profile>
+
+# Step 5: VERIFY tables are actually attached
+databricks api get /api/2.0/genie/spaces/<space_id>?include_serialized_space=true --profile=<profile>
+# Parse the serialized_space JSON string → data_sources.tables should list your tables
+# WARNING: The table_identifiers field in the GET response is ALWAYS EMPTY — only check serialized_space
 ```
 
-**Common mistake:** Passing `title`/`table_identifiers` in the POST body -- they are silently ignored and the space is created without tables.
+**Silent failure traps:**
+- `table_identifiers` in POST body → silently ignored, space created with zero tables
+- `table_identifiers` in PATCH body → returns 200 but tables are NOT attached
+- Unsorted tables in `serialized_space` → returns 400: "data_sources.tables must be sorted by identifier"
+- `table_identifiers` in GET response → always empty even if tables exist; parse `serialized_space` instead
 
 ### 11. Grant CAN_RUN on Genie Space
 The app SP needs CAN_RUN permission on the Genie Space. Also grant to the `account users` group for demo users.
