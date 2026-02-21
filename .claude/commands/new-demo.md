@@ -179,6 +179,22 @@ Tell the user: "Now let's set up the Databricks infrastructure."
 
 **2.3 CLI profile** — What's the Databricks CLI profile name?
 - Suggest: the workspace name (e.g., `my-demo`). Remind them to run `databricks auth login <url> --profile=<name>` if not set up.
+- **IMMEDIATELY after getting the profile**, update `.mcp.json` in the project root to wire the Databricks MCP server with the user's profile:
+```python
+# Write .mcp.json with the CLI profile
+import json
+mcp_config = {
+    "mcpServers": {
+        "databricks": {
+            "command": "~/ai-dev-kit/databricks-mcp-server/.venv/bin/python",
+            "args": ["~/ai-dev-kit/databricks-mcp-server/run_server.py"],
+            "env": {"DATABRICKS_CONFIG_PROFILE": "<profile>"}
+        }
+    }
+}
+```
+- Tell the user: "I've configured `.mcp.json` with your CLI profile. **You need to restart Claude Code** (Cmd+Shift+P → Reload Window, or exit and re-open) for the Databricks MCP tools to load. These tools let me create Genie Spaces, Knowledge Assistants, and MAS programmatically during deployment. Please restart now — I'll pick up where we left off."
+- **Pause the wizard until the user confirms they've restarted and the MCP tools are available.** After restart, verify by checking if the Databricks MCP tools are accessible (e.g., `ToolSearch` for "databricks").
 
 **2.4 Catalog name** — What's the Unity Catalog name?
 - Suggest: `serverless_<name_with_underscores>_catalog` (FEVM auto-creates this). Ask them to confirm.
@@ -414,7 +430,7 @@ UI
 
 Then **enter plan mode** using the `EnterPlanMode` tool. In plan mode:
 
-1. Read the scaffold's `CLAUDE.md` thoroughly for all patterns, gotchas, and conventions.
+1. Read the scaffold's `CLAUDE.md` + `docs/GOTCHAS.md` + `docs/API_PATTERNS.md` + `docs/DEPLOYMENT_GUIDE.md` for all patterns and conventions.
 2. Create a detailed implementation plan that lists every file to be created/modified, with a brief description of what goes in each.
 3. Organize the plan into the 4 deployment phases (A through D) from the scaffold.
 4. Include parallelization notes for each phase.
@@ -436,6 +452,7 @@ Once the plan is approved, generate all code. **Use the Task tool aggressively f
 - **Task 2:** Fill in `app/app.yaml` — Set warehouse ID, catalog, schema. Leave MAS tile ID and Lakebase as TODO (created during deployment).
 - **Task 3:** Generate `lakebase/domain_schema.sql` — Create tables for the Lakebase entities.
 - **Task 4:** Fill in `notebooks/01_setup_schema.sql` — Set catalog and schema names.
+- **Task 5:** Verify `.mcp.json` has the CLI profile set (should already be done from Phase 2.3, but confirm it's not still `"TODO"`).
 
 ### Step 7.2: Generate data + backend
 
@@ -443,7 +460,7 @@ Once the plan is approved, generate all code. **Use the Task tool aggressively f
 
 - **Task 1:** Generate `notebooks/02_generate_data.py` — Create data generation for all Delta Lake entities, using the KPIs and historical range from Phase 3. Use deterministic hash-based generation for reproducibility.
 - **Task 2:** Generate `notebooks/03_seed_lakebase.py` — Create seeding for Lakebase operational tables.
-- **Task 3:** Generate domain API routes in `main.py` — Add endpoints for each entity (list, detail, filters, CRUD for Lakebase entities).
+- **Task 3:** Generate domain API routes in `main.py` — Add endpoints for each entity (list, detail, filters, CRUD for Lakebase entities). **CRITICAL: Wire workflow approval side-effects** (Gotcha #26). For each `workflow_type` from Phase 3/4, implement `_execute_workflow_actions(wf_row)` that dispatches domain-specific writes on approve (entity updates, notes, agent_actions records) and `_record_dismiss(wf_row)` for the audit trail. Without this, the Agent Workflows "Approve" button only changes status — no domain actions execute and the demo looks broken. Return `actions_taken` list from the PATCH response. Update frontend `approveWorkflow()`/`dismissWorkflow()` to show flash messages from the response.
 
 ### Step 7.3: Generate frontend
 
@@ -649,7 +666,7 @@ After deployment, verify everything works:
 
 1. Report the app URL to the user
 2. Check `/api/health` returns `{"status": "healthy"}`
-3. If any checks fail, diagnose using the troubleshooting table in CLAUDE.md and fix automatically
+3. If any checks fail, diagnose using the troubleshooting table in `docs/DEPLOYMENT_GUIDE.md` and fix automatically
 4. Tell the user to open the app in their browser (OAuth login required)
 
 ```
@@ -673,4 +690,4 @@ Next steps:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-**IMPORTANT:** Read the scaffold's `CLAUDE.md` for all patterns, gotchas, and conventions. Follow every pattern documented there throughout all phases.
+**IMPORTANT:** Read the scaffold's `CLAUDE.md` for patterns and conventions. For detailed deployment commands, read `docs/DEPLOYMENT_GUIDE.md`. For API formats (Genie Space, MAS, UC HTTP), read `docs/API_PATTERNS.md`. For known issues, read `docs/GOTCHAS.md`.

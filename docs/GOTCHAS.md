@@ -1,0 +1,249 @@
+# Known Gotchas (Complete Reference)
+
+All documented gotchas with full code examples. Referenced from CLAUDE.md.
+
+---
+
+### 1. Lakebase InterfaceError + OperationalError
+The Lakebase OAuth token expires periodically. The core pool catches BOTH `psycopg2.InterfaceError` AND `psycopg2.OperationalError` and reinitializes with a fresh token. This is already handled in `core/lakebase.py` — do NOT modify.
+
+### 2. Agent Brick endpoint naming
+The MAS serving endpoint name is: `mas-{first_8_chars_of_tile_id}-endpoint`. Use the short 8-char prefix as `MAS_TILE_ID` in `app.yaml`, NOT the full UUID.
+
+### 3. MAS PATCH requires full agents array
+When updating MAS instructions via PATCH `/api/2.0/multi-agent-supervisors/{tile_id}`, you must include `name` AND the complete `agents` array, even if you're only changing instructions. **IMPORTANT:** The `{tile_id}` in the API path must be the **full UUID**, not the 8-char prefix used in the endpoint name. Agent types use **kebab-case**: `genie-space`, `external-mcp-server`, `knowledge-assistant`, `unity-catalog-function`.
+
+### 4. MCP create_or_update_mas doesn't support all agent types
+The Databricks MCP tool for MAS doesn't support `unity-catalog-function` or `external-mcp-server` agent types. Use the REST API directly for MAS configs that include these. Note: agent types use kebab-case (`external-mcp-server`, not `mcp_connection`).
+
+### 5. Lakebase instance uses hyphens
+Instance names use hyphens (e.g., `my-demo-db`), NOT underscores. The Lakebase API will reject names with underscores.
+
+### 6. Notebook auth: use generate_database_credential()
+In serverless notebooks, `w.config._header_factory` tokens are NOT valid for Lakebase PG connections. Use:
+```python
+cred = w.database.generate_database_credential(instance_names=["my-instance"])
+password = cred.token
+```
+`_header_factory` only works inside Databricks Apps where PGHOST/PGUSER are injected by the app resource system.
+
+### 7. ResultManifest SDK compatibility
+Newer SDK versions use `manifest.schema.columns` instead of `manifest.columns`. The core module handles this:
+```python
+columns = getattr(manifest, "columns", None) or getattr(manifest.schema, "columns", [])
+```
+
+### 8. app.yaml resources are NOT auto-registered — you MUST use the API
+**This is the #1 cause of "app deployed but nothing works."** The `app.yaml` `resources:` section is declarative documentation only — it does NOT register resources with the Databricks Apps platform. You MUST register resources via `databricks apps update --json '{"resources": [...]}'` AND then redeploy. Without this:
+- `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER` env vars are never injected -> Lakebase connection fails
+- The app SP has no access to the SQL warehouse -> Delta Lake queries fail
+- The app SP has no access to the MAS endpoint -> chat returns 403
+
+**The fix is always:** register resources via API -> redeploy -> verify with `/api/health`.
+
+### 9. `databricks apps update` replaces all resources
+PATCH/update to app resources replaces the entire resources array. Always include ALL resources in the update, not just the new one.
+
+### 10. Genie Space creation — tables MUST use serialized_space format
+The Genie Space API is full of silent-failure traps. Both POST and PATCH silently ignore `table_identifiers` — tables only work via the `serialized_space` JSON string field with dotted three-part identifiers, sorted alphabetically.
+
+```bash
+# Step 1: Create a blank Genie Space
+databricks api post /api/2.0/genie/spaces --json '{
+  "serialized_space": "{\"version\": 2}",
+  "warehouse_id": "<warehouse-id>"
+}' --profile=<profile>
+# Returns: {"space_id": "abc123..."}
+
+# Step 2: PATCH title and description (these fields work directly)
+databricks api patch /api/2.0/genie/spaces/<space_id> --json '{
+  "title": "My Demo Data Space",
+  "description": "Query data about ..."
+}' --profile=<profile>
+
+# Step 3: PATCH tables via serialized_space (ONLY way that works)
+# Tables must be dotted 3-part names, SORTED ALPHABETICALLY
+databricks api patch /api/2.0/genie/spaces/<space_id> --json '{
+  "serialized_space": "{\"version\":2,\"data_sources\":{\"tables\":[{\"identifier\":\"my_catalog.my_schema.table1\"},{\"identifier\":\"my_catalog.my_schema.table2\"}]}}"
+}' --profile=<profile>
+
+# Step 4: PATCH instructions (optional but recommended)
+databricks api patch /api/2.0/genie/spaces/<space_id> --json '{
+  "instructions": "You are a data assistant for ... Use these terms: ..."
+}' --profile=<profile>
+
+# Step 5: VERIFY tables are actually attached
+databricks api get /api/2.0/genie/spaces/<space_id>?include_serialized_space=true --profile=<profile>
+# Parse the serialized_space JSON string -> data_sources.tables should list your tables
+# WARNING: The table_identifiers field in the GET response is ALWAYS EMPTY — only check serialized_space
+```
+
+**Silent failure traps:**
+- `table_identifiers` in POST body -> silently ignored, space created with zero tables
+- `table_identifiers` in PATCH body -> returns 200 but tables are NOT attached
+- Unsorted tables in `serialized_space` -> returns 400: "data_sources.tables must be sorted by identifier"
+- `table_identifiers` in GET response -> always empty even if tables exist; parse `serialized_space` instead
+
+### 11. Grant CAN_RUN on Genie Space
+The app SP needs CAN_RUN permission on the Genie Space. Also grant to the `account users` group for demo users.
+
+**IMPORTANT:** The permissions endpoint is `/api/2.0/permissions/genie/{space_id}` -- note it is just `genie`, NOT `genie/spaces`.
+```bash
+# CORRECT endpoint:
+databricks api patch /api/2.0/permissions/genie/<space_id> --json '{
+  "access_control_list": [
+    {"group_name": "users", "permission_level": "CAN_RUN"}
+  ]
+}' --profile=<profile>
+
+# WRONG (returns 404):
+# databricks api patch /api/2.0/permissions/genie/spaces/<space_id> ...
+```
+
+### 12. MAS agent types use kebab-case
+All MAS agent types use **kebab-case**, not snake_case. The correct formats are:
+```json
+{"agent_type": "genie-space", "genie_space": {"id": "..."}}
+{"agent_type": "knowledge-assistant", "knowledge_assistant": {"knowledge_assistant_id": "..."}}
+{"agent_type": "unity-catalog-function", "unity_catalog_function": {"uc_path": {"catalog": "...", "schema": "...", "name": "..."}}}
+{"agent_type": "external-mcp-server", "mcp_connection": {"mcp_connection_id": "..."}}
+```
+**Common mistake:** Using `databricks_genie` instead of `genie-space`, or `mcp_connection` instead of `external-mcp-server`.
+
+### 13. Empty app = data notebooks not run
+If the app dashboard shows empty/zero metrics, the Delta Lake tables don't exist yet. You MUST run `02_generate_data.py` BEFORE deploying the app. The app queries tables that this notebook creates.
+
+### 14. App health returns {} or 401
+The Databricks Apps proxy requires OAuth authentication. `curl` from the terminal gets a 401 (`{}`). You must visit the app URL in a browser to trigger OAuth login and see the real app. The health endpoint works correctly when accessed through the browser.
+
+### 15. Lakebase MCP trailing slash
+The MCP endpoint is at `/mcp/` (with trailing slash). When creating the UC HTTP connection, set `base_path=/mcp/`. Without the trailing slash, Starlette redirects to `localhost:8000/mcp/` which breaks behind the Databricks App proxy.
+
+### 16. MAS sends JSON strings for MCP tool params
+MAS agents serialize nested objects as JSON strings instead of native objects. The Lakebase MCP server handles this via `_ensure_dict()` and `_ensure_list()` coercion, but if you build custom MCP tools, you must handle both formats.
+
+### 17. CAN_USE on Lakebase MCP app for MAS
+MAS External MCP Server goes through a Databricks MCP proxy that authenticates as a service principal. You must grant `CAN_USE` to the `users` group on the Lakebase MCP app, otherwise the proxy gets 401.
+
+### 18. OAuth M2M for UC HTTP Connection
+For the UC HTTP connection to the Lakebase MCP server, use Databricks OAuth M2M (not PAT). SP OAuth secrets must be created at the **Account Console** level (not workspace API). Connection fields: `host`, `port=443`, `base_path=/mcp/`, `client_id`, `client_secret`, `oauth_scope=all-apis`.
+
+**CRITICAL: The `host` field MUST include the `https://` scheme.** Without it, you get a "Missing cloud file system scheme" error.
+```
+# CORRECT:
+host = "https://my-app.aws.databricksapps.com"
+
+# WRONG (causes "Missing cloud file system scheme" error):
+host = "my-app.aws.databricksapps.com"
+```
+
+### 19. Agent Workflows page requires Lakebase tables
+The Agent Workflows page fetches data from `/api/agent-overview`, which queries the Lakebase `workflows` and `agent_actions` tables (from `core_schema.sql`). If Lakebase is not set up, the page shows zeros or errors. **You MUST create the Lakebase instance, database, and apply `core_schema.sql` BEFORE deploying the app.** The frontend `loadAgentPage()` function calls the `/api/agent-overview` endpoint — if you leave it with placeholder/hardcoded values, the KPIs will be misleading.
+
+### 20. Frontend has no dashboard — vibe must build it
+The scaffold template only includes two starter pages (AI Chat + Agent Workflows). There is NO dashboard page by default. Vibe must generate the dashboard, layout, and domain pages based on the user's preferences. See the "Frontend Generation Flow" section in CLAUDE.md for what to ask before building.
+
+### 21. Statement Execution API only supports single statements
+The Databricks Statement Execution API (`POST /api/2.0/sql/statements`) executes a **single** SQL statement per request. Sending multiple statements separated by `;` fails with a parse error. The notebook UI splits on `-- COMMAND ----------` markers and sends each cell individually, so multi-statement `.sql` files work fine in the notebook UI but fail when executed via API or CLI. When automating notebook execution via API, send each statement as a separate API call.
+
+### 22. Serverless notebook SDK missing `w.database` — upgrade first
+The serverless notebook runtime ships an older `databricks-sdk` that does NOT include the `w.database` module. Calling `w.database.generate_database_credential()` throws `AttributeError: 'WorkspaceClient' object has no attribute 'database'`. **Fix:** Add `%pip install --upgrade databricks-sdk` as the first cell and restart the Python interpreter (`dbutils.library.restartPython()`). Alternatively, skip the notebook entirely and seed Lakebase via local CLI: `databricks psql <instance> --profile=<profile> -- -d <database> -f /tmp/seed.sql`.
+
+### 23. PGHOST not set after resource PATCH — must redeploy
+If you add a `database` resource via `databricks api patch /api/2.0/apps/<name>` AFTER deploying, the app crashes with `psycopg2.OperationalError: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432"`. Databricks Apps only inject `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER` env vars **at deploy time**. A resource PATCH alone does NOT inject them. **Fix: Always redeploy after adding or changing resources.** The core `lakebase.py` guards against this — if `PGHOST` is empty, the pool is skipped and a clear warning is logged instead of crashing.
+
+### 24. MAS tile ID discovery — no list endpoint
+There is **NO list endpoint** for Multi-Agent Supervisors. To find the MAS tile ID after creation:
+1. `GET /api/2.0/serving-endpoints` — list all serving endpoints
+2. Find the one named `mas-{8chars}-endpoint`
+3. Extract `tile_endpoint_metadata.tile_id` from the endpoint object — this is the **full UUID**
+4. Use the **full UUID** for GET/PATCH: `/api/2.0/multi-agent-supervisors/{full-uuid}`
+
+**Common mistake:** Using the 8-char prefix as the tile ID in API calls. The 8-char prefix is only for the endpoint name. The REST API requires the full UUID.
+
+```bash
+# Example: discover the MAS tile ID
+databricks api get /api/2.0/serving-endpoints --profile=<profile> | \
+  jq '.endpoints[] | select(.name | startswith("mas-")) | .tile_endpoint_metadata.tile_id'
+```
+
+### 25. MAS serving endpoint CAN_QUERY must be granted explicitly
+Registering the `mas-endpoint` resource via `databricks apps update` with `"permission": "CAN_QUERY"` declares the intent but does NOT reliably grant the permission to the app SP. The chat endpoint returns 403 even though the resource is registered. **Fix:** Grant CAN_QUERY explicitly on the serving endpoint itself. This does NOT require a redeploy — permissions take effect immediately.
+```bash
+databricks api patch /api/2.0/permissions/serving-endpoints/<mas-endpoint-name> \
+  --json '{"access_control_list":[{"service_principal_name":"<app-sp-client-id>","permission_level":"CAN_QUERY"}]}' \
+  --profile=<profile>
+```
+
+### 26. Workflow approval only updates status — no side-effects
+The scaffold's default `PATCH /api/workflows/{id}` only sets `status = 'approved'` and `completed_at = NOW()`. **No domain actions are executed** — linked entities are not updated, no communications are sent, no notes or agent_actions are recorded. The demo looks broken: user approves an escalation but nothing changes.
+
+**Fix:** Wire side-effects in your `update_workflow()` endpoint per `workflow_type`. After the status PATCH returns the row, dispatch type-specific writes:
+
+```python
+@app.patch("/api/workflows/{workflow_id}")
+async def update_workflow(workflow_id: int, body: WorkflowUpdate):
+    row = await asyncio.to_thread(write_pg, "UPDATE workflows SET ... RETURNING *", ...)
+
+    actions_taken = []
+    if row and body.status == "approved":
+        actions_taken = await _execute_workflow_actions(row)
+    elif row and body.status == "dismissed":
+        actions_taken = await _record_dismiss(row)
+
+    if row:
+        row["actions_taken"] = actions_taken
+    return row
+```
+
+**What to wire per workflow type on approve:**
+
+| Concern | Example |
+|---------|---------|
+| Entity update | Change status, reassign team, set resolution on the linked entity |
+| Communication | Insert a draft/approved communication record |
+| Agent action record | Insert into `agent_actions` with `status='executed'` |
+| Note | Insert into `notes` documenting what happened |
+
+### 27. `.mcp.json` profile must be set — Databricks MCP tools are invisible without it
+The scaffold ships `.mcp.json` with `"DATABRICKS_CONFIG_PROFILE": "TODO"`. If left as `TODO`, the Databricks MCP server never starts and tools like `create_or_update_ka`, `create_or_update_mas`, and `create_genie_space` are completely invisible — they don't show up in `ToolSearch` and can't be called. This means KA creation, Genie Space management, and MAS wiring must all be done via raw REST APIs or the Databricks UI, which is slower and error-prone.
+
+**Detection:** If `ToolSearch` for "databricks" returns no results, the MCP server isn't running.
+
+**Fix:** The `/new-demo` wizard updates `.mcp.json` automatically in Phase 2.3 when the CLI profile is collected. If you're not using the wizard, manually update `.mcp.json`:
+```json
+{
+  "mcpServers": {
+    "databricks": {
+      "command": "~/ai-dev-kit/databricks-mcp-server/.venv/bin/python",
+      "args": ["~/ai-dev-kit/databricks-mcp-server/run_server.py"],
+      "env": {"DATABRICKS_CONFIG_PROFILE": "<your-profile>"}
+    }
+  }
+}
+```
+Then **restart Claude Code** — MCP servers only load at session start.
+
+**Fallback:** If the MCP server isn't available (e.g., `ai-dev-kit` not installed), you can call the Python library directly:
+```python
+import os
+os.environ['DATABRICKS_CONFIG_PROFILE'] = '<profile>'
+from databricks_tools_core.agent_bricks import AgentBricksManager
+manager = AgentBricksManager()
+manager.ka_create_or_update(name=..., knowledge_sources=[...])
+```
+
+**On dismiss:** Always record an `agent_actions` entry with `status='dismissed'` and a note, but do NOT execute domain side-effects.
+
+**Checklist for each demo:**
+- Identify all `workflow_type` values
+- Define what "approve" means in domain terms for each type
+- Implement `_execute_workflow_actions(wf_row)` with a dispatch per type
+- Implement `_record_dismiss(wf_row)` for the audit trail
+- Use `asyncio.gather()` for parallel writes within each type
+- Return `actions_taken` list so frontend can show descriptive flash messages
+- Update frontend `approveWorkflow()`/`dismissWorkflow()` to read `actions_taken` from the response
+- Look up the linked entity using `entity_id` from the workflow row
+- Parse `reasoning_chain` JSONB for agent findings to include in notes
+
+**Reference:** `examples/supply_chain_routes.py` — workflow approval pattern
