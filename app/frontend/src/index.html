@@ -326,7 +326,7 @@ tr:hover td { background:#f8fafc; }
 .arch-node-action::before { content:'\25B8'; color:var(--text-muted); font-size:9px; flex-shrink:0; }
 .arch-node-actions-more { font-size:10px; color:var(--text-muted); padding:2px 0; }
 .flow-detail-panel { height:0; overflow:hidden; background:#fff; border:1px solid var(--border); border-radius:var(--radius); box-shadow:0 2px 12px rgba(0,0,0,.06); transition:height .3s ease; margin-top:16px; }
-.flow-detail-panel.open { height:320px; }
+.flow-detail-panel.open { height:auto; max-height:560px; overflow-y:auto; }
 .flow-detail-header { display:flex; align-items:center; justify-content:space-between; padding:12px 24px; border-bottom:1px solid var(--border); }
 .flow-detail-header.online { background:linear-gradient(90deg,#f0fdf4,#f8fafc); }
 .flow-detail-header.error { background:linear-gradient(90deg,#fef2f2,#f8fafc); }
@@ -341,13 +341,8 @@ tr:hover td { background:#f8fafc; }
 .flow-detail-header-right a:hover, .flow-detail-header-right button:hover { background:var(--steel-bg); }
 .flow-detail-close { background:none!important; border:none!important; font-size:18px; cursor:pointer; color:var(--text-muted); padding:4px 8px!important; }
 .flow-detail-close:hover { color:var(--text); }
-.flow-detail-body { display:flex; height:calc(100% - 52px); overflow:hidden; }
-.flow-detail-actions { width:260px; border-right:1px solid var(--border); padding:16px; overflow-y:auto; flex-shrink:0; }
-.flow-detail-actions h4 { font-size:12px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:10px; }
-.flow-detail-action-btn { display:flex; align-items:center; gap:8px; width:100%; text-align:left; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:#fff; cursor:pointer; font-size:12px; color:var(--text); transition:all .15s; margin-bottom:6px; }
-.flow-detail-action-btn:hover { background:#f0f4ff; border-color:#6366f1; }
-.flow-detail-action-btn svg { flex-shrink:0; color:var(--text-muted); }
-.flow-detail-right { flex:1; padding:16px 20px; overflow-y:auto; }
+.flow-detail-body { display:flex; flex-direction:column; min-height:120px; max-height:440px; overflow-y:auto; padding:16px 24px; gap:12px; }
+.flow-detail-right { display:grid; grid-template-columns:1fr 1fr; gap:12px 24px; }
 .flow-detail-section { margin-bottom:14px; }
 .flow-detail-section h4 { font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px; }
 .flow-detail-section p { font-size:12px; color:var(--text); line-height:1.5; }
@@ -355,6 +350,31 @@ tr:hover td { background:#f8fafc; }
 .flow-detail-stat { background:var(--steel-bg); border:1px solid var(--border); border-radius:8px; padding:4px 12px; font-size:12px; font-weight:600; }
 .flow-detail-tables { display:flex; flex-wrap:wrap; gap:6px; }
 .flow-detail-table-pill { font-size:11px; background:var(--steel-bg); border:1px solid var(--border); border-radius:6px; padding:3px 10px; color:var(--text-muted); }
+
+/* ─── Data Explorer (architecture detail panel for data nodes) ─── */
+.data-explorer { display:grid; grid-template-columns:240px 1fr; height:100%; min-height:380px; }
+.data-explorer-sidebar { border-right:1px solid var(--border); overflow-y:auto; padding:0; background:var(--steel-bg); }
+.de-sidebar-header { font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; padding:12px 16px 8px; }
+.de-table-list { list-style:none; margin:0; padding:0; }
+.de-table-list li { display:flex; justify-content:space-between; align-items:center; padding:8px 16px; cursor:pointer; font-size:13px; color:var(--text); border-left:3px solid transparent; transition:all .12s; }
+.de-table-list li:hover { background:#f1f5f9; }
+.de-table-list li.active { background:#eff6ff; border-left-color:#3b82f6; font-weight:600; color:#1d4ed8; }
+.de-table-list li .de-row-count { font-size:11px; color:var(--text-muted); font-weight:400; white-space:nowrap; }
+.data-explorer-content { overflow-y:auto; padding:16px 20px; }
+.de-card { border:1px solid var(--border); border-radius:var(--radius); margin-bottom:14px; overflow:hidden; }
+.de-card-header { font-size:12px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; padding:8px 14px; background:var(--steel-bg); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.de-card-body { padding:0; overflow-x:auto; }
+.de-card-body table { width:100%; border-collapse:collapse; font-size:12px; }
+.de-card-body table th { position:sticky; top:0; background:var(--steel-bg); padding:6px 12px; text-align:left; font-weight:600; color:var(--text-muted); border-bottom:1px solid var(--border); white-space:nowrap; }
+.de-card-body table td { padding:5px 12px; border-bottom:1px solid #f1f5f9; color:var(--text); max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.de-card-body table tr:hover td { background:#f8fafc; }
+.de-badge-type { display:inline-block; font-size:10px; background:#eff6ff; color:#3b82f6; border-radius:4px; padding:1px 6px; font-weight:600; }
+.de-badge-pk { display:inline-block; font-size:9px; background:#fef3c7; color:#d97706; border-radius:4px; padding:1px 5px; font-weight:700; margin-left:4px; }
+.de-badge-nullable { display:inline-block; font-size:9px; background:#f1f5f9; color:#9ca3af; border-radius:4px; padding:1px 5px; margin-left:4px; }
+.de-null-cell { color:#d1d5db; font-style:italic; }
+.de-loading { display:flex; align-items:center; justify-content:center; padding:40px; color:var(--text-muted); font-size:13px; gap:8px; }
+.de-empty-state { text-align:center; padding:32px; color:var(--text-muted); font-size:13px; }
+@keyframes spin { to { transform:rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -1159,6 +1179,8 @@ const FLOW_ICONS = {
   infrastructure: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>',
   mas: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>',
   app: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>',
+  'lakehouse-node': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>',
+  lakebase: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>',
 };
 const FLOW_STATUS_ICON = {
   online: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
@@ -1323,42 +1345,319 @@ function selectArchNode(key) {
   showFlowDetail(info, data.workspace_url || '');
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   DATA EXPLORER — two-pane table browser for data nodes
+   ═══════════════════════════════════════════════════════════════════════════ */
+let _deAbort = null;
+let _deCache = {};
+let _deSource = 'delta';
+let _deWUrl = '';
+
+function renderDataExplorer(info, wUrl) {
+  const panel = document.getElementById('flow-detail-panel');
+  const details = info.details || {};
+  const tables = details.tables || [];
+  const rowCounts = details.row_counts || {};
+  const schemas = details.table_schemas || {};
+  const status = info.status || 'online';
+  const color = info.color || '#3b82f6';
+  const icon = FLOW_ICONS[info.type] || FLOW_ICONS['mcp-server'];
+
+  _deSource = (info.key === 'lakebase_setup' || info.key === 'lakebase') ? 'lakebase' : 'delta';
+  _deWUrl = wUrl;
+  _deCache = {};
+
+  for (const [tbl, cols] of Object.entries(schemas)) {
+    _deCache[tbl] = { columns: cols, rows: null, row_count: rowCounts[tbl] ?? null };
+  }
+
+  const sidebarItems = tables.map(t => {
+    const cnt = rowCounts[t];
+    const cntLabel = typeof cnt === 'number' ? cnt.toLocaleString() + ' rows' : '';
+    return `<li data-table="${escHtml(t)}" onclick="deSelectTable('${escHtml(t)}')">${escHtml(t.replace(/_/g, ' '))}<span class="de-row-count">${cntLabel}</span></li>`;
+  }).join('');
+
+  panel.innerHTML = `
+    <div class="flow-detail-header ${status}">
+      <div class="flow-detail-header-left">
+        <div class="flow-detail-icon" style="background:${color}15;color:${color}">${icon}</div>
+        <span class="flow-detail-name">${escHtml(info.name || '')}</span>
+        <span class="flow-detail-badge ${status}">${FLOW_STATUS_ICON[status] || ''} ${status === 'online' ? 'ONLINE' : 'ERROR'}</span>
+      </div>
+      <div class="flow-detail-header-right">
+        <button class="flow-detail-close" onclick="event.stopPropagation();hideFlowDetail()">&times;</button>
+      </div>
+    </div>
+    <div class="data-explorer">
+      <div class="data-explorer-sidebar">
+        <div class="de-sidebar-header">Tables (${tables.length})</div>
+        <ul class="de-table-list">${sidebarItems}</ul>
+      </div>
+      <div class="data-explorer-content" id="de-content">
+        <div class="de-empty-state">Select a table to explore</div>
+      </div>
+    </div>`;
+  panel.classList.add('open');
+
+  if (tables.length) deSelectTable(tables[0]);
+}
+
+function deSelectTable(tableName) {
+  document.querySelectorAll('.de-table-list li').forEach(li => li.classList.remove('active'));
+  const active = document.querySelector(`.de-table-list li[data-table="${tableName}"]`);
+  if (active) active.classList.add('active');
+
+  const content = document.getElementById('de-content');
+  if (!content) return;
+
+  if (_deAbort) { _deAbort.abort(); _deAbort = null; }
+
+  const cached = _deCache[tableName];
+  if (cached && cached.columns && cached.columns.length) {
+    content.innerHTML = _deRenderCards(tableName, cached.columns, cached.rows, cached.row_count, !cached.rows);
+  } else {
+    content.innerHTML = `<div class="de-loading"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.49-8.49l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M7.76 7.76L4.93 4.93"/></svg> Loading...</div>`;
+  }
+
+  const ctrl = new AbortController();
+  _deAbort = ctrl;
+  fetch(`/api/architecture/table-data?table=${encodeURIComponent(tableName)}&source=${_deSource}&limit=20`, { signal: ctrl.signal })
+    .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+    .then(data => {
+      if (ctrl.signal.aborted) return;
+      _deCache[tableName] = { columns: data.columns, rows: data.rows, row_count: data.row_count };
+      const stillActive = document.querySelector('.de-table-list li.active');
+      if (stillActive && stillActive.dataset.table === tableName) {
+        content.innerHTML = _deRenderCards(tableName, data.columns, data.rows, data.row_count, false);
+      }
+    })
+    .catch(e => {
+      if (e.name === 'AbortError') return;
+      if (ctrl.signal.aborted) return;
+      if (cached && cached.columns && cached.columns.length) {
+        content.innerHTML = _deRenderCards(tableName, cached.columns, null, cached.row_count, false);
+      } else {
+        content.innerHTML = `<div class="de-empty-state">Failed to load table data</div>`;
+      }
+    });
+}
+
+function _deRenderCards(tableName, columns, rows, rowCount, loading) {
+  let html = '';
+  const countLabel = typeof rowCount === 'number' ? `${rowCount.toLocaleString()} rows` : '';
+  html += `<div class="de-card">
+    <div class="de-card-header"><span>Schema &middot; ${escHtml(tableName.replace(/_/g, ' '))}</span><span style="font-weight:400;text-transform:none;letter-spacing:0">${countLabel}</span></div>
+    <div class="de-card-body">${_deRenderSchemaTable(columns)}</div>
+  </div>`;
+  html += `<div class="de-card">
+    <div class="de-card-header"><span>Sample Data</span><span style="font-weight:400;text-transform:none;letter-spacing:0">${rows ? rows.length + ' rows' : ''}</span></div>
+    <div class="de-card-body">${loading
+      ? '<div class="de-loading"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.49-8.49l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M7.76 7.76L4.93 4.93"/></svg> Loading sample data...</div>'
+      : rows ? _deRenderSampleTable(columns, rows) : '<div class="de-empty-state">No sample data available</div>'
+    }</div>
+  </div>`;
+  return html;
+}
+
+function _deRenderSchemaTable(columns) {
+  if (!columns || !columns.length) return '<div class="de-empty-state">No schema available</div>';
+  const hasExtended = columns.some(c => c.nullable !== undefined || c.key);
+  let head = '<tr><th>Column</th><th>Type</th>';
+  if (hasExtended) head += '<th>Nullable</th><th>Default</th><th>Key</th>';
+  head += '</tr>';
+  const rows = columns.map(c => {
+    let row = `<tr><td style="font-weight:500">${escHtml(c.col)}</td><td><span class="de-badge-type">${escHtml(c.type)}</span></td>`;
+    if (hasExtended) {
+      row += `<td>${c.nullable ? '<span class="de-badge-nullable">NULL</span>' : 'NOT NULL'}</td>`;
+      row += `<td style="font-size:11px;color:var(--text-muted)">${c.default ? escHtml(String(c.default).substring(0, 30)) : '\u2014'}</td>`;
+      row += `<td>${c.key ? '<span class="de-badge-pk">' + escHtml(c.key) + '</span>' : ''}</td>`;
+    }
+    row += '</tr>';
+    return row;
+  }).join('');
+  return `<table>${head}${rows}</table>`;
+}
+
+function _deRenderSampleTable(columns, rows) {
+  if (!rows || !rows.length) return '<div class="de-empty-state">No data</div>';
+  const colNames = columns.map(c => c.col);
+  const head = '<tr>' + colNames.map(c => `<th>${escHtml(c)}</th>`).join('') + '</tr>';
+  const body = rows.map(r => {
+    return '<tr>' + colNames.map(c => {
+      const v = r[c];
+      if (v === null || v === undefined) return `<td><span class="de-null-cell">null</span></td>`;
+      let s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+      if (s.length > 100) s = s.substring(0, 100) + '\u2026';
+      return `<td title="${escHtml(String(r[c]))}">${escHtml(s)}</td>`;
+    }).join('') + '</tr>';
+  }).join('');
+  return `<table>${head}${body}</table>`;
+}
+
 function showFlowDetail(info, wUrl) {
+  if (info.key === 'lakehouse' || info.key === 'lakebase' || info.key === 'data_generation' || info.key === 'lakebase_setup') {
+    renderDataExplorer(info, wUrl);
+    return;
+  }
   const panel = document.getElementById('flow-detail-panel');
   const status = info.status || 'online';
   const color = info.color || '#6366f1';
   const icon = FLOW_ICONS[info.type] || FLOW_ICONS['mcp-server'];
-  const actions = info.actions || [];
-  const stats = info.stats || [];
   const details = info.details || {};
-  const tables = details.tables || [];
+  const stats = info.stats || [];
   const displayItems = info.display_items || [];
 
-  let configUrl = '';
-  if (info.key === 'mas' && wUrl && details.tile_id) configUrl = `${wUrl}/ml/bricks/mas/configure/${details.tile_id}`;
-  else if (info.type === 'genie-space' && wUrl && details.genie_space_id) configUrl = `${wUrl}/genie/rooms/${details.genie_space_id}`;
+  // Workspace link
+  let configUrl = info.workspace_url || '';
+  if (!configUrl) {
+    if (info.key === 'mas' && wUrl && details.tile_id) {
+      configUrl = `${wUrl}/ml/bricks/mas/configure/${details.tile_id}`;
+    } else if (info.type === 'genie-space' && wUrl && details.genie_space_id) {
+      configUrl = `${wUrl}/genie/rooms/${details.genie_space_id}`;
+    }
+  }
 
-  const actionsHtml = actions.map(a =>
-    `<button class="flow-detail-action-btn" onclick="event.stopPropagation();askAI('${escHtml(a.replace(/'/g,"\\'"))}')">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(a)}</span>
-    </button>`
+  // Build sections array — each section is {title, html, wide?}
+  const sections = [];
+
+  // Description (always full width)
+  const desc = info.description || details.genie_description || details.ka_description || '';
+  if (desc) {
+    sections.push({title: 'Description', html: `<p style="font-size:13px;color:var(--text);line-height:1.6;margin:0">${escHtml(desc)}</p>`, wide: true});
+  }
+
+  // Stats
+  const statsHtml = stats.map(s =>
+    `<span class="flow-detail-stat">${fmt(s.value)} ${escHtml(s.label)}</span>`
+  ).join('');
+  if (statsHtml) {
+    sections.push({title: 'Stats', html: `<div class="flow-detail-stats">${statsHtml}</div>`});
+  }
+
+  // Display items (component list)
+  const filteredItems = displayItems.filter(it => it.text);
+  if (filteredItems.length) {
+    const itemsHtml = filteredItems.map(it =>
+      `<div style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        <span style="width:6px;height:6px;border-radius:50%;background:${it.status === 'success' ? '#16a34a' : it.status === 'info' ? '#3b82f6' : '#9ca3af'};flex-shrink:0"></span>
+        ${escHtml(it.text)}
+      </div>`
+    ).join('');
+    sections.push({title: 'Components', html: itemsHtml});
+  }
+
+  // Genie Space — connected tables and curated questions
+  const genieTables = details.genie_tables || [];
+  const curatedQ = details.curated_question || '';
+  if (genieTables.length) {
+    let html = `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">${genieTables.map(t =>
+      `<span style="font-size:11px;background:var(--steel-bg);border:1px solid var(--border);border-radius:6px;padding:2px 8px;color:var(--text)">${escHtml(typeof t === 'string' ? t : '')}</span>`
+    ).join('')}</div>`;
+    if (curatedQ) {
+      html += `<div style="font-size:11px;color:var(--text-muted);font-style:italic;margin-top:4px">Sample: "${escHtml(curatedQ)}"</div>`;
+    }
+    sections.push({title: `Connected Tables (${genieTables.length})`, html});
+  }
+
+  // KA details — indexes and endpoint state
+  const kaIndexes = details.ka_indexes || [];
+  const kaEndpoint = details.ka_endpoint || details.endpoint_name || '';
+  const kaState = details.endpoint_state || '';
+  if (kaIndexes.length || kaEndpoint || kaState) {
+    let html = '';
+    if (kaState) {
+      html += `<div style="font-size:12px;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+        <span style="width:6px;height:6px;border-radius:50%;background:${kaState === 'READY' ? '#16a34a' : '#f59e0b'}"></span>
+        Endpoint: ${escHtml(kaEndpoint || 'N/A')} — ${escHtml(kaState)}
+      </div>`;
+    }
+    if (kaIndexes.length) {
+      html += `<div style="font-size:12px;font-weight:600;margin-bottom:4px">Vector Search Indexes (${kaIndexes.length})</div>`;
+      html += kaIndexes.map(idx =>
+        `<div style="font-size:11px;color:var(--text-muted);margin-bottom:2px;padding-left:8px">• ${escHtml(idx)}</div>`
+      ).join('');
+    }
+    sections.push({title: 'Knowledge Assistant', html});
+  }
+
+  // MAS sub-agents
+  const subAgents = details.sub_agent_names || [];
+  if (subAgents.length) {
+    const html = subAgents.map(a =>
+      `<div style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        <span style="width:6px;height:6px;border-radius:50%;background:#3b82f6;flex-shrink:0"></span>
+        ${escHtml(a)}
+      </div>`
+    ).join('');
+    sections.push({title: 'Sub-Agents', html});
+  }
+
+  // MAS instructions (truncated)
+  const masInstructions = details.instructions || '';
+  if (masInstructions) {
+    const truncated = masInstructions.length > 200 ? masInstructions.substring(0, 200) + '...' : masInstructions;
+    sections.push({title: 'System Instructions', html: `<p style="font-size:11px;color:var(--text-muted);line-height:1.5;margin:0;font-style:italic">${escHtml(truncated)}</p>`});
+  }
+
+  // UC Function details
+  const fnDetails = details.function_details || {};
+  const fnEntries = Object.entries(fnDetails);
+  if (fnEntries.length) {
+    const html = fnEntries.map(([fn, info]) => {
+      const infoEntries = Object.entries(info || {}).filter(([k]) => k !== 'function_name').slice(0, 4);
+      return `<div style="margin-bottom:6px"><div style="font-size:12px;font-weight:600">${escHtml(fn)}</div>` +
+        infoEntries.map(([k, v]) => `<div style="font-size:11px;color:var(--text-muted)">${escHtml(k)}: ${escHtml(String(v).substring(0, 80))}</div>`).join('') +
+        `</div>`;
+    }).join('');
+    sections.push({title: 'Functions', html});
+  }
+
+  // Table schemas
+  const tableSchemas = details.table_schemas || {};
+  const schemaEntries = Object.entries(tableSchemas);
+  if (schemaEntries.length) {
+    const html = schemaEntries.slice(0, 6).map(([tbl, cols]) => {
+      const colList = (cols || []).slice(0, 8);
+      const moreCount = (cols || []).length - 8;
+      return `<div style="margin-bottom:8px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:3px">${escHtml(tbl)}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px">${colList.map(c =>
+          `<span style="font-size:10px;background:var(--steel-bg);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--text-muted)">${escHtml(c.col)} <span style="color:#9ca3af">${escHtml(c.type)}</span></span>`
+        ).join('')}${moreCount > 0 ? `<span style="font-size:10px;color:var(--text-muted)">+${moreCount} more</span>` : ''}</div>
+      </div>`;
+    }).join('');
+    sections.push({title: `Table Schemas (${schemaEntries.length})`, html, wide: true});
+  }
+
+  // Tables list (fallback when no schemas)
+  const tables = details.tables || [];
+  if (tables.length && !schemaEntries.length) {
+    const html = `<div class="flow-detail-tables">${tables.map(t =>
+      `<span class="flow-detail-table-pill">${escHtml(typeof t === 'string' ? t.replace(/_/g, ' ') : t)}</span>`
+    ).join('')}</div>`;
+    sections.push({title: 'Tables', html});
+  }
+
+  // Functions list (fallback for UC node without detailed info)
+  const functions = details.functions || [];
+  if (functions.length && !fnEntries.length) {
+    const html = `<div style="display:flex;flex-wrap:wrap;gap:4px">${functions.map(f =>
+      `<span style="font-size:11px;background:var(--steel-bg);border:1px solid var(--border);border-radius:6px;padding:2px 8px">${escHtml(f)}</span>`
+    ).join('')}</div>`;
+    sections.push({title: 'Functions', html});
+  }
+
+  // Build the grid content
+  const wideSections = sections.filter(s => s.wide);
+  const normalSections = sections.filter(s => !s.wide);
+
+  const wideHtml = wideSections.map(s =>
+    `<div class="flow-detail-section" style="grid-column:1/-1">${s.title ? `<h4>${escHtml(s.title)}</h4>` : ''}${s.html}</div>`
   ).join('');
 
-  const statsHtml = stats.map(s => `<span class="flow-detail-stat">${fmt(s.value)} ${escHtml(s.label)}</span>`).join('');
-  const itemsHtml = displayItems.map(it =>
-    `<div style="font-size:12px;display:flex;align-items:center;gap:4px;margin-bottom:3px">
-      <span style="width:6px;height:6px;border-radius:50%;background:${it.status === 'success' ? '#16a34a' : '#9ca3af'};flex-shrink:0"></span>
-      ${escHtml(it.text)}
-    </div>`
+  const normalHtml = normalSections.map(s =>
+    `<div class="flow-detail-section">${s.title ? `<h4>${escHtml(s.title)}</h4>` : ''}${s.html}</div>`
   ).join('');
-  const tablesHtml = tables.length ? `
-    <div class="flow-detail-section">
-      <h4>Tables</h4>
-      <div class="flow-detail-tables">${tables.map(t =>
-        `<span class="flow-detail-table-pill">${escHtml(typeof t === 'string' ? t.replace(/_/g, ' ') : t)}</span>`
-      ).join('')}</div>
-    </div>` : '';
 
   panel.innerHTML = `
     <div class="flow-detail-header ${status}">
@@ -1369,22 +1668,16 @@ function showFlowDetail(info, wUrl) {
       </div>
       <div class="flow-detail-header-right">
         ${configUrl ? `<a href="${escHtml(configUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-          Configure
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Open in Workspace
         </a>` : ''}
         <button class="flow-detail-close" onclick="event.stopPropagation();hideFlowDetail()">&times;</button>
       </div>
     </div>
     <div class="flow-detail-body">
-      <div class="flow-detail-actions">
-        <h4>Available Actions</h4>
-        ${actionsHtml || '<div style="font-size:12px;color:var(--text-muted)">No actions available</div>'}
-      </div>
       <div class="flow-detail-right">
-        ${info.description ? `<div class="flow-detail-section"><h4>Description</h4><p>${escHtml(info.description)}</p></div>` : ''}
-        ${statsHtml ? `<div class="flow-detail-section"><h4>Stats</h4><div class="flow-detail-stats">${statsHtml}</div></div>` : ''}
-        ${itemsHtml ? `<div class="flow-detail-section"><h4>Progress Details</h4>${itemsHtml}</div>` : ''}
-        ${tablesHtml}
+        ${wideHtml}
+        ${normalHtml}
       </div>
     </div>`;
   panel.classList.add('open');
