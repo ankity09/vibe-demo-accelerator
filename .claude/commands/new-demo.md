@@ -1,6 +1,6 @@
 # /new-demo — Scaffold Demo Wizard
 
-You are a demo setup wizard. Walk the user through **8 phases** to configure, build, and deploy a new Databricks demo from the scaffold. Each phase has a specific purpose and explicit parallelization instructions.
+You are a demo setup wizard. Walk the user through **9 phases (Phase 0 through Phase 8)** to configure, build, and deploy a new Databricks demo from the scaffold. Each phase has a specific purpose and explicit parallelization instructions.
 
 **DO NOT write any code until the user approves the plan in Phase 6.**
 
@@ -8,10 +8,142 @@ You are a demo setup wizard. Walk the user through **8 phases** to configure, bu
 
 1. **One phase at a time.** Complete each phase fully before moving to the next.
 2. **Use AskUserQuestion** for every question. Never assume answers.
-3. **After each phase**, write the answers to `demo-config.yaml` in the project root (append, don't overwrite previous phases).
+3. **After each phase**, write the answers to `PROJECT_DIR/demo-config.yaml` (append, don't overwrite previous phases). `PROJECT_DIR` is set during Phase 0.
 4. **Show a phase summary** after each phase so the user can correct anything.
 5. **Use the Task tool for parallel work** wherever marked with `[PARALLEL]`. Launch multiple sub-agents simultaneously.
 6. **Stay within the /new-demo flow** for the entire lifecycle — Q&A, planning, code gen, deployment, and verification. Do NOT break out of this flow.
+7. **All file operations target `PROJECT_DIR`** after Phase 0 completes. Never write generated files back into the scaffold directory.
+8. **Resume detection:** If `demo-config.yaml` exists in the current directory with a `phase_0:` section, skip Phase 0 and resume at the first incomplete phase.
+
+---
+
+## Phase 0: Project Setup
+
+This phase creates a separate project directory from the scaffold so generated files don't pollute the reusable template.
+
+### Step 0.0: Resume Detection
+
+Check the current working directory for `demo-config.yaml`:
+
+1. **If `demo-config.yaml` exists WITH a `phase_0:` section** — This is a resumed session. Read the config, set `PROJECT_DIR` from `phase_0.project_dir`, and skip to the first incomplete phase (the first phase that does NOT have a corresponding section in the config). Tell the user: "Resuming your `<demo_name>` project. Picking up at Phase N."
+
+2. **If `demo-config.yaml` exists WITHOUT a `phase_0:` section** — This is a legacy config from before Phase 0 was added. Warn the user:
+   - "I found a `demo-config.yaml` but it was created before the project setup phase existed. Your generated files may be mixed into the scaffold directory."
+   - Ask: "Would you like to: (a) Migrate — I'll create a new project directory and move your files there, (b) Continue in-place — keep working in this directory as-is, (c) Start fresh — begin a brand new project"
+
+3. **If NO `demo-config.yaml` AND current directory has scaffold sentinel files (`skill/` directory AND `QUICKSTART.md`)** — Fresh start from the scaffold. Continue to Step 0.1.
+
+4. **If NO `demo-config.yaml` AND current directory does NOT have scaffold sentinels** — The user isn't in the scaffold directory. Ask: "I don't see the scaffold files here. Would you like to: (a) Create a new project in this directory, (b) Point me to the scaffold directory to copy from"
+
+### Step 0.1: Ask for project directory
+
+Tell the user: "First, let's create a project directory. The scaffold stays clean as a reusable template — your demo gets its own directory."
+
+Ask (use AskUserQuestion):
+
+**Project directory** — Where should I create your project?
+- Suggest: `../<demo-name>/` (sibling to the scaffold, using a slugified version of any name they've mentioned)
+- Accept relative or absolute paths
+- Resolve the final path to an absolute path using the scaffold's parent directory as the base for relative paths
+
+### Step 0.2: Validate the path
+
+Apply these checks in order:
+
+1. **If the path is INSIDE the scaffold directory** (is a subdirectory of the current working directory) — Reject with: "The project directory can't be inside the scaffold — that defeats the purpose of separation. Please choose a sibling or external directory."
+
+2. **If the path exists and contains files** — Warn the user: List the files/directories present and ask: "This directory already has files. Should I copy the scaffold here without overwriting existing files? (Existing files will be preserved, new scaffold files will be added.)"
+
+3. **If the path exists but is empty** — Proceed silently.
+
+4. **If the path doesn't exist** — Create it with `mkdir -p`.
+
+Set `PROJECT_DIR` to the resolved absolute path. All subsequent file operations in this wizard target `PROJECT_DIR`.
+
+### Step 0.3: Copy scaffold structure
+
+Copy the scaffold files to `PROJECT_DIR`. Use the Bash tool to copy each group. **Do NOT copy:** `.git/`, `.gitmodules`, `README.md`, `QUICKSTART.md`, `skill/`.
+
+```bash
+# Copy the scaffold structure to the project directory
+SCAFFOLD_DIR="<current working directory>"
+PROJECT_DIR="<resolved project path>"
+
+# Create directory structure
+mkdir -p "$PROJECT_DIR"/{app/backend/core,app/frontend/src,lakebase,notebooks,agent_bricks,genie_spaces,docs,examples,.claude/commands}
+
+# Copy app layer
+cp "$SCAFFOLD_DIR"/app/app.yaml "$PROJECT_DIR"/app/
+cp "$SCAFFOLD_DIR"/app/requirements.txt "$PROJECT_DIR"/app/
+cp "$SCAFFOLD_DIR"/app/backend/__init__.py "$PROJECT_DIR"/app/backend/
+cp "$SCAFFOLD_DIR"/app/backend/main.py "$PROJECT_DIR"/app/backend/
+cp "$SCAFFOLD_DIR"/app/backend/core/*.py "$PROJECT_DIR"/app/backend/core/
+cp "$SCAFFOLD_DIR"/app/frontend/src/index.html "$PROJECT_DIR"/app/frontend/src/
+
+# Copy lakebase schemas
+cp "$SCAFFOLD_DIR"/lakebase/*.sql "$PROJECT_DIR"/lakebase/
+
+# Copy notebooks
+cp "$SCAFFOLD_DIR"/notebooks/* "$PROJECT_DIR"/notebooks/
+
+# Copy agent configs
+cp "$SCAFFOLD_DIR"/agent_bricks/*.json "$PROJECT_DIR"/agent_bricks/
+cp "$SCAFFOLD_DIR"/genie_spaces/*.json "$PROJECT_DIR"/genie_spaces/
+
+# Copy lakebase-mcp-server (excluding .git, __pycache__, *.pyc)
+rsync -a --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' "$SCAFFOLD_DIR"/lakebase-mcp-server/ "$PROJECT_DIR"/lakebase-mcp-server/
+
+# Copy claude commands (so /new-demo works for resume in the new project)
+cp "$SCAFFOLD_DIR"/.claude/commands/*.md "$PROJECT_DIR"/.claude/commands/
+
+# Copy docs and examples (needed by Phase 6 and Phase 7)
+cp "$SCAFFOLD_DIR"/docs/*.md "$PROJECT_DIR"/docs/
+cp "$SCAFFOLD_DIR"/examples/*.py "$PROJECT_DIR"/examples/
+
+# Copy root files
+cp "$SCAFFOLD_DIR"/CLAUDE.md "$PROJECT_DIR"/
+cp "$SCAFFOLD_DIR"/.gitignore "$PROJECT_DIR"/
+cp "$SCAFFOLD_DIR"/.mcp.json "$PROJECT_DIR"/
+```
+
+### Step 0.4: Initialize git
+
+```bash
+cd "$PROJECT_DIR" && git init && git add -A && git commit -m "Initial scaffold from dbx-demo-scaffold"
+```
+
+If `git` is not installed or the command fails, skip gracefully and tell the user: "Git init skipped — you can initialize the repo later."
+
+### Step 0.5: Write phase_0 config
+
+Write `PROJECT_DIR/demo-config.yaml`:
+```yaml
+# Demo Configuration — generated by /new-demo wizard
+# Phase 0: Project Setup
+phase_0:
+  scaffold_source: "<absolute path to scaffold directory>"
+  project_dir: "<absolute path to PROJECT_DIR>"
+  created_at: "<ISO 8601 timestamp>"
+```
+
+### Step 0.6: Confirm and continue
+
+Show a summary:
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        PROJECT CREATED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Directory:  <PROJECT_DIR>
+Files:      <count> files copied from scaffold
+Git:        initialized (or skipped)
+
+The scaffold directory is untouched.
+All generated code will go into this project.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+Proceed directly to Phase 1 (no restart needed yet).
 
 ---
 
@@ -130,9 +262,8 @@ Based on the research, propose a demo story and ask the user to confirm or adjus
 
 Show the complete Phase 1 summary and ask: "Does this capture the right story? Change anything you'd like."
 
-**After the user confirms**, write to `demo-config.yaml`:
+**After the user confirms**, append to `PROJECT_DIR/demo-config.yaml`:
 ```yaml
-# Demo Configuration — generated by /new-demo wizard
 # Phase 1: Customer Discovery & Story
 story:
   customer_name: "<real company name>"
@@ -179,9 +310,9 @@ Tell the user: "Now let's set up the Databricks infrastructure."
 
 **2.3 CLI profile** — What's the Databricks CLI profile name?
 - Suggest: the workspace name (e.g., `my-demo`). Remind them to run `databricks auth login <url> --profile=<name>` if not set up.
-- **IMMEDIATELY after getting the profile**, update `.mcp.json` in the project root to wire the Databricks MCP server with the user's profile:
+- **IMMEDIATELY after getting the profile**, update `PROJECT_DIR/.mcp.json` to wire the Databricks MCP server with the user's profile:
 ```python
-# Write .mcp.json with the CLI profile
+# Write PROJECT_DIR/.mcp.json with the CLI profile
 import json
 mcp_config = {
     "mcpServers": {
@@ -193,8 +324,8 @@ mcp_config = {
     }
 }
 ```
-- Tell the user: "I've configured `.mcp.json` with your CLI profile. **You need to restart Claude Code** (Cmd+Shift+P → Reload Window, or exit and re-open) for the Databricks MCP tools to load. These tools let me create Genie Spaces, Knowledge Assistants, and MAS programmatically during deployment. Please restart now — I'll pick up where we left off."
-- **Pause the wizard until the user confirms they've restarted and the MCP tools are available.** After restart, verify by checking if the Databricks MCP tools are accessible (e.g., `ToolSearch` for "databricks").
+- Tell the user: "I've configured `.mcp.json` with your CLI profile. **You need to restart Claude Code in the new project directory** to pick up the Databricks MCP tools. Run: `cd PROJECT_DIR && claude`. Then run `/new-demo` — it will detect your config and resume from Phase 3."
+- **Pause the wizard.** The user must restart Claude Code in `PROJECT_DIR` for MCP tools to load. When they re-run `/new-demo`, Step 0.0 will detect the existing `demo-config.yaml` with `phase_0` + `story` + partial `infrastructure` sections and resume at the next incomplete question.
 
 **2.4 Catalog name** — What's the Unity Catalog name?
 - Suggest: `serverless_<name_with_underscores>_catalog` (FEVM auto-creates this). Ask them to confirm.
@@ -214,7 +345,7 @@ mcp_config = {
 - If NO:
   - Explain: "I'll deploy the shared Lakebase MCP server for the first time during Phase 8C. It's named `lakebase-mcp-server` (not per-demo) and supports multi-database routing so future demos can reuse it."
 
-**After collecting all answers**, append to `demo-config.yaml`:
+**After collecting all answers**, append to `PROJECT_DIR/demo-config.yaml`:
 ```yaml
 # Phase 2: Infrastructure
 infrastructure:
@@ -266,7 +397,7 @@ Tell the user: "Now let's define the data model — what tables and metrics your
 - Explain: "Delta Lake tables are for analytics (read-only dashboards). Lakebase tables are for operational data the AI agent can create and update (e.g., work orders, alerts, notes)."
 - Suggest operational tables based on their entities. Typically: notes (always), agent_actions (always), workflows (always — these are core), plus 2-3 domain tables.
 
-**After collecting all answers**, append to `demo-config.yaml`:
+**After collecting all answers**, append to `PROJECT_DIR/demo-config.yaml`:
 ```yaml
 # Phase 3: Data Model
 data_model:
@@ -308,7 +439,7 @@ Tell the user: "Now let's configure the AI agents — Genie Space for data queri
 - Options: "Yes (recommended)", "No, read-only agent is fine"
 - Default to yes. Explain: "This lets the AI create work orders, update statuses, add notes — anything that writes to the database."
 
-**After collecting all answers**, append to `demo-config.yaml`:
+**After collecting all answers**, append to `PROJECT_DIR/demo-config.yaml`:
 ```yaml
 # Phase 4: AI Layer
 ai_layer:
@@ -351,7 +482,7 @@ Tell the user: "Now let's design the look and feel."
 - Suggest based on their entities from Phase 3. For example if they have "breeding_programs" and "field_trials", suggest "Breeding Programs" and "Field Trials" pages.
 - Let them add/remove pages.
 
-**After collecting all answers**, append to `demo-config.yaml`:
+**After collecting all answers**, append to `PROJECT_DIR/demo-config.yaml`:
 ```yaml
 # Phase 5: UI
 ui:
@@ -430,7 +561,7 @@ UI
 
 Then **enter plan mode** using the `EnterPlanMode` tool. In plan mode:
 
-1. Read the scaffold's `CLAUDE.md` + `docs/GOTCHAS.md` + `docs/API_PATTERNS.md` + `docs/DEPLOYMENT_GUIDE.md` for all patterns and conventions.
+1. Read the project's `CLAUDE.md` + `docs/GOTCHAS.md` + `docs/API_PATTERNS.md` + `docs/DEPLOYMENT_GUIDE.md` for all patterns and conventions.
 2. Create a detailed implementation plan that lists every file to be created/modified, with a brief description of what goes in each.
 3. Organize the plan into the 4 deployment phases (A through D) from the scaffold.
 4. Include parallelization notes for each phase.
@@ -448,23 +579,23 @@ Once the plan is approved, generate all code. **Use the Task tool aggressively f
 
 **`[PARALLEL]` — Launch these simultaneously:**
 
-- **Task 1:** Fill in `CLAUDE.md` — Replace all TODO values in the Project Identity section.
-- **Task 2:** Fill in `app/app.yaml` — Set warehouse ID, catalog, schema. Leave MAS tile ID and Lakebase as TODO (created during deployment).
-- **Task 3:** Generate `lakebase/domain_schema.sql` — Create tables for the Lakebase entities.
-- **Task 4:** Fill in `notebooks/01_setup_schema.sql` — Set catalog and schema names.
-- **Task 5:** Verify `.mcp.json` has the CLI profile set (should already be done from Phase 2.3, but confirm it's not still `"TODO"`).
+- **Task 1:** Fill in `PROJECT_DIR/CLAUDE.md` — Replace all TODO values in the Project Identity section.
+- **Task 2:** Fill in `PROJECT_DIR/app/app.yaml` — Set warehouse ID, catalog, schema. Leave MAS tile ID and Lakebase as TODO (created during deployment).
+- **Task 3:** Generate `PROJECT_DIR/lakebase/domain_schema.sql` — Create tables for the Lakebase entities.
+- **Task 4:** Fill in `PROJECT_DIR/notebooks/01_setup_schema.sql` — Set catalog and schema names.
+- **Task 5:** Verify `PROJECT_DIR/.mcp.json` has the CLI profile set (should already be done from Phase 2.3, but confirm it's not still `"TODO"`).
 
 ### Step 7.2: Generate data + backend
 
 **`[PARALLEL]` — Launch these simultaneously:**
 
-- **Task 1:** Generate `notebooks/02_generate_data.py` — Create data generation for all Delta Lake entities, using the KPIs and historical range from Phase 3. Use deterministic hash-based generation for reproducibility.
-- **Task 2:** Generate `notebooks/03_seed_lakebase.py` — Create seeding for Lakebase operational tables.
-- **Task 3:** Generate domain API routes in `main.py` — Add endpoints for each entity (list, detail, filters, CRUD for Lakebase entities). **CRITICAL: Wire workflow approval side-effects** (Gotcha #26). For each `workflow_type` from Phase 3/4, implement `_execute_workflow_actions(wf_row)` that dispatches domain-specific writes on approve (entity updates, notes, agent_actions records) and `_record_dismiss(wf_row)` for the audit trail. Without this, the Agent Workflows "Approve" button only changes status — no domain actions execute and the demo looks broken. Return `actions_taken` list from the PATCH response. Update frontend `approveWorkflow()`/`dismissWorkflow()` to show flash messages from the response.
+- **Task 1:** Generate `PROJECT_DIR/notebooks/02_generate_data.py` — Create data generation for all Delta Lake entities, using the KPIs and historical range from Phase 3. Use deterministic hash-based generation for reproducibility.
+- **Task 2:** Generate `PROJECT_DIR/notebooks/03_seed_lakebase.py` — Create seeding for Lakebase operational tables.
+- **Task 3:** Generate domain API routes in `PROJECT_DIR/app/backend/main.py` — Add endpoints for each entity (list, detail, filters, CRUD for Lakebase entities). **CRITICAL: Wire workflow approval side-effects** (Gotcha #26). For each `workflow_type` from Phase 3/4, implement `_execute_workflow_actions(wf_row)` that dispatches domain-specific writes on approve (entity updates, notes, agent_actions records) and `_record_dismiss(wf_row)` for the audit trail. Without this, the Agent Workflows "Approve" button only changes status — no domain actions execute and the demo looks broken. Return `actions_taken` list from the PATCH response. Update frontend `approveWorkflow()`/`dismissWorkflow()` to show flash messages from the response.
 
 ### Step 7.3: Generate frontend
 
-Generate the frontend in `app/frontend/src/index.html` based on Phase 5 UI preferences:
+Generate the frontend in `PROJECT_DIR/app/frontend/src/index.html` based on Phase 5 UI preferences:
 - Set CSS variables for the color scheme (use brand colors from research)
 - Build the layout (sidebar/topnav/dashboard-first)
 - Create the dashboard page with selected components
@@ -475,8 +606,8 @@ Generate the frontend in `app/frontend/src/index.html` based on Phase 5 UI prefe
 
 **`[PARALLEL]` — Launch these simultaneously:**
 
-- **Task 1:** Generate `agent_bricks/mas_config.json` — Configure MAS with the persona and sub-agents.
-- **Task 2:** Generate `genie_spaces/config.json` — Configure Genie Space with the selected tables.
+- **Task 1:** Generate `PROJECT_DIR/agent_bricks/mas_config.json` — Configure MAS with the persona and sub-agents.
+- **Task 2:** Generate `PROJECT_DIR/genie_spaces/config.json` — Configure Genie Space with the selected tables.
 
 ### Step 7.5: Code review checkpoint
 
@@ -592,14 +723,14 @@ The MCP server is named `lakebase-mcp-server` (NOT per-demo). It supports multi-
       - **host:** `<mcp-app-url>`, **port:** `443`
 
 3. **If it does NOT exist (first demo):**
-   a. Update `lakebase-mcp-server/app/app.yaml` with the Lakebase instance and database names
+   a. Update `PROJECT_DIR/lakebase-mcp-server/app/app.yaml` with the Lakebase instance and database names
    b. Create the app:
       ```bash
       databricks apps create lakebase-mcp-server --profile=<profile>
       ```
    c. Sync and deploy:
       ```bash
-      databricks sync ./lakebase-mcp-server/app /Workspace/Users/<you>/lakebase-mcp-server/app --profile=<profile> --watch=false
+      databricks sync PROJECT_DIR/lakebase-mcp-server/app /Workspace/Users/<you>/lakebase-mcp-server/app --profile=<profile> --watch=false
       databricks apps deploy lakebase-mcp-server --source-code-path /Workspace/Users/<you>/lakebase-mcp-server/app --profile=<profile>
       ```
    d. Register the database resource via API:
@@ -644,7 +775,7 @@ Report: "Phase C complete — Genie Space, MAS, and Lakebase MCP server deployed
 Tell the user: "Deploying Phase D — deploying the app and registering resources."
 
 Sequential steps:
-1. Sync app code to workspace
+1. Sync app code from `PROJECT_DIR/app` to workspace
 2. Deploy app: `databricks apps deploy <name> --source-code-path <path> --profile=<profile>`
 3. **Register resources via API** (CRITICAL — app.yaml alone does NOT register them):
 ```bash
@@ -690,4 +821,4 @@ Next steps:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-**IMPORTANT:** Read the scaffold's `CLAUDE.md` for patterns and conventions. For detailed deployment commands, read `docs/DEPLOYMENT_GUIDE.md`. For API formats (Genie Space, MAS, UC HTTP), read `docs/API_PATTERNS.md`. For known issues, read `docs/GOTCHAS.md`.
+**IMPORTANT:** Read the project's `CLAUDE.md` for patterns and conventions. For detailed deployment commands, read `docs/DEPLOYMENT_GUIDE.md`. For API formats (Genie Space, MAS, UC HTTP), read `docs/API_PATTERNS.md`. For known issues, read `docs/GOTCHAS.md`.
