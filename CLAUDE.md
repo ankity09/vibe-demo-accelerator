@@ -512,6 +512,23 @@ databricks api patch /api/2.0/permissions/serving-endpoints/<mas-endpoint-name> 
   --profile=<profile>
 ```
 
+### 26. MCP tool calls require auto-approval in streaming
+When MAS calls an External MCP Server tool, it emits an `mcp_approval_request` event and pauses — it will NOT execute the tool until the caller sends back an approval. Without handling this, the MAS tells the user "I don't see the tool available" even though it's configured.
+
+The `core/streaming.py` module handles this automatically: it detects `mcp_approval_request` items, auto-approves them by sending a follow-up request with `mcp_approval_response`, and continues streaming. The approval payload format:
+```json
+{
+  "type": "mcp_approval_response",
+  "id": "approval-1-<request_id>",
+  "approval_request_id": "<id from mcp_approval_request>",
+  "approve": true
+}
+```
+The follow-up request must include the original conversation + all output items from the current round + the approval response(s). Up to 10 approval rounds are supported per chat turn (safety limit).
+
+### 27. MAS instructions must reference actual MCP tool names
+MAS instructions that say "Use the Lakebase MCP tool to INSERT..." will confuse the model — it looks for a tool literally called "Lakebase MCP tool" and fails. The actual tool names are `insert_record`, `execute_sql`, `read_query`, `update_records`, etc. Always reference specific tool names in MAS instructions and include a tool reference section listing available tools.
+
 ## Lakebase MCP Server Deployment
 
 The scaffold includes a **shared** Lakebase MCP server at `lakebase-mcp-server/`. Deploy it once and reuse across all demos via URL-based database routing (`/db/{database}/mcp/`).

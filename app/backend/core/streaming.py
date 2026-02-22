@@ -1,5 +1,6 @@
 """
-MAS (Multi-Agent Supervisor) SSE streaming proxy with action card detection.
+MAS (Multi-Agent Supervisor) SSE streaming proxy with action card detection
+and automatic MCP tool approval.
 
 SSE event protocol (frontend must handle all of these):
   - delta:            Text chunk from the final answer
@@ -10,6 +11,11 @@ SSE event protocol (frontend must handle all of these):
   - suggested_actions: Follow-up prompts based on tools used
   - error:            Error message
   - [DONE]:           Stream complete
+
+MCP Auto-Approval:
+  When MAS calls an External MCP Server tool, it emits an `mcp_approval_request`
+  event and pauses. This module auto-approves those requests and re-invokes the
+  MAS with the approval to continue execution. The caller sees seamless streaming.
 
 Usage:
     from backend.core.streaming import stream_mas_chat
@@ -129,63 +135,104 @@ async def stream_mas_chat(
     final_text = ""
     lakebase_called = False
     tools_called = set()
+    MAX_APPROVAL_ROUNDS = 10  # safety limit to prevent infinite loops
 
     try:
         host, auth = await asyncio.to_thread(_get_mas_auth)
         url = f"{host}/serving-endpoints/{endpoint}/invocations"
-        payload = {"input": chat_history[-10:], "stream": True}
+        input_messages = list(chat_history[-10:])
+        approval_round = 0
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(180.0)) as client:
-            async with client.stream(
-                "POST", url,
-                json=payload,
-                headers={"Authorization": auth, "Content-Type": "application/json"},
-            ) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    raw = line[6:]
-                    if raw == "[DONE]":
-                        break
-                    try:
-                        evt = json.loads(raw)
-                    except json.JSONDecodeError:
-                        continue
+            while approval_round <= MAX_APPROVAL_ROUNDS:
+                payload = {"input": input_messages, "stream": True}
+                round_output_items = []
+                pending_approvals = []
 
-                    etype = evt.get("type", "")
-                    step = evt.get("step", 0)
+                async with client.stream(
+                    "POST", url,
+                    json=payload,
+                    headers={"Authorization": auth, "Content-Type": "application/json"},
+                ) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        raw = line[6:]
+                        if raw == "[DONE]":
+                            break
+                        try:
+                            evt = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
 
-                    if etype == "response.output_text.delta":
-                        delta = evt.get("delta", "")
-                        if delta:
-                            final_text += delta
-                            yield f"data: {json.dumps({'type': 'delta', 'text': delta, 'step': step})}\n\n"
+                        etype = evt.get("type", "")
+                        step = evt.get("step", 0)
 
-                    elif etype == "response.output_item.done":
-                        item = evt.get("item", {})
-                        item_type = item.get("type", "")
+                        if etype == "response.output_text.delta":
+                            delta = evt.get("delta", "")
+                            if delta:
+                                final_text += delta
+                                yield f"data: {json.dumps({'type': 'delta', 'text': delta, 'step': step})}\n\n"
 
-                        if item_type == "function_call":
-                            agent_name = item.get("name", "")
-                            tools_called.add(agent_name)
-                            if "lakebase" in agent_name.lower():
-                                lakebase_called = True
-                            yield f"data: {json.dumps({'type': 'tool_call', 'agent': agent_name, 'step': step})}\n\n"
+                        elif etype == "response.output_item.done":
+                            item = evt.get("item", {})
+                            item_type = item.get("type", "")
+                            round_output_items.append(item)
 
-                        elif item_type == "message":
-                            content = item.get("content", [])
-                            for block in content:
-                                text_val = block.get("text", "")
-                                if text_val.startswith("<name>") and text_val.endswith("</name>"):
-                                    agent_name = text_val[6:-7]
-                                    yield f"data: {json.dumps({'type': 'agent_switch', 'agent': agent_name, 'step': step})}\n\n"
-                                elif text_val and len(text_val) > 5 and not text_val.startswith("<"):
-                                    yield f"data: {json.dumps({'type': 'sub_result', 'text': text_val, 'step': step})}\n\n"
-                            if item.get("role") == "assistant" and step > 1:
+                            if item_type == "function_call":
+                                agent_name = item.get("name", "")
+                                tools_called.add(agent_name)
+                                if "lakebase" in agent_name.lower():
+                                    lakebase_called = True
+                                yield f"data: {json.dumps({'type': 'tool_call', 'agent': agent_name, 'step': step})}\n\n"
+
+                            elif item_type == "mcp_approval_request":
+                                tool_name = item.get("name", "unknown")
+                                server_label = item.get("server_label", "")
+                                log.info("MCP approval request: tool=%s server=%s id=%s", tool_name, server_label, item.get("id"))
+                                pending_approvals.append(item)
+                                tools_called.add(f"mcp:{server_label}:{tool_name}")
+                                if "lakebase" in server_label.lower():
+                                    lakebase_called = True
+                                yield f"data: {json.dumps({'type': 'tool_call', 'agent': f'{server_label} → {tool_name}', 'step': step})}\n\n"
+
+                            elif item_type == "function_call_output":
+                                output_text = item.get("output", "")
+                                if output_text and len(output_text) > 5:
+                                    yield f"data: {json.dumps({'type': 'sub_result', 'text': output_text[:2000], 'step': step})}\n\n"
+
+                            elif item_type == "message":
+                                content = item.get("content", [])
                                 for block in content:
-                                    if block.get("type") == "output_text" and block.get("text"):
-                                        final_text = block["text"]
+                                    text_val = block.get("text", "")
+                                    if text_val.startswith("<name>") and text_val.endswith("</name>"):
+                                        agent_name = text_val[6:-7]
+                                        yield f"data: {json.dumps({'type': 'agent_switch', 'agent': agent_name, 'step': step})}\n\n"
+                                    elif text_val and len(text_val) > 5 and not text_val.startswith("<"):
+                                        yield f"data: {json.dumps({'type': 'sub_result', 'text': text_val, 'step': step})}\n\n"
+                                if item.get("role") == "assistant" and step > 1:
+                                    for block in content:
+                                        if block.get("type") == "output_text" and block.get("text"):
+                                            final_text = block["text"]
+
+                # If no MCP approvals pending, we're done
+                if not pending_approvals:
+                    break
+
+                # Auto-approve MCP tool calls and continue
+                approval_round += 1
+                log.info("Auto-approving %d MCP tool call(s) (round %d)", len(pending_approvals), approval_round)
+                input_messages = list(chat_history[-10:])
+                for item in round_output_items:
+                    input_messages.append(item)
+                for req in pending_approvals:
+                    input_messages.append({
+                        "type": "mcp_approval_response",
+                        "id": f"approval-{approval_round}-{req.get('id', '')}",
+                        "approval_request_id": req.get("id", ""),
+                        "approve": True,
+                    })
 
     except Exception as e:
         log.error("MAS stream error: %s", e)
