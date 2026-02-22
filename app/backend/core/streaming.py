@@ -145,7 +145,7 @@ async def stream_mas_chat(
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(180.0)) as client:
             while approval_round <= MAX_APPROVAL_ROUNDS:
-                payload = {"input": input_messages, "stream": True}
+                payload = {"input": input_messages, "stream": True, "max_turns": 15}
                 round_output_items = []
                 pending_approvals = []
 
@@ -223,13 +223,12 @@ async def stream_mas_chat(
                 # Auto-approve MCP tool calls and continue
                 approval_round += 1
                 log.info("Auto-approving %d MCP tool call(s) (round %d)", len(pending_approvals), approval_round)
-                # IMPORTANT: Only include 'message' and 'mcp_approval_request' types.
-                # function_call / function_call_output are internal MAS items and
-                # cause errors if included as input.
+                # Include ALL output item types (message, function_call,
+                # function_call_output, mcp_approval_request) — omitting any
+                # breaks the MAS conversation context and causes approval failures.
                 input_messages = list(chat_history[-10:])
                 for item in round_output_items:
-                    if item.get("type") in ("message", "mcp_approval_request"):
-                        input_messages.append(item)
+                    input_messages.append(item)
                 for req in pending_approvals:
                     input_messages.append({
                         "type": "mcp_approval_response",
