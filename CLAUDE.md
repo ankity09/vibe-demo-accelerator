@@ -524,10 +524,13 @@ The `core/streaming.py` module handles this automatically: it detects `mcp_appro
   "approve": true
 }
 ```
-The follow-up request must include the original conversation + all output items from the current round + the approval response(s). Up to 10 approval rounds are supported per chat turn (safety limit).
+The follow-up request must include the original conversation + **ALL output items** from the current round (message, function_call, function_call_output, mcp_approval_request) + the approval response(s). **Do NOT filter output items** — omitting function_call/function_call_output breaks the MAS conversation context and causes "unexpected position" errors. Up to 10 approval rounds are supported per chat turn (safety limit).
 
 ### 27. MAS instructions must reference actual MCP tool names
 MAS instructions that say "Use the Lakebase MCP tool to INSERT..." will confuse the model — it looks for a tool literally called "Lakebase MCP tool" and fails. The actual tool names are `insert_record`, `execute_sql`, `read_query`, `update_records`, etc. Always reference specific tool names in MAS instructions and include a tool reference section listing available tools.
+
+### 28. MAS max_turns must be increased for MCP workflows
+The default MAS step/turn limit is too low for multi-tool workflows that include MCP. The model exhausts its budget on analysis tools (Genie, UC functions) before reaching MCP tools, then reports "MCP tools not accessible." **Fix:** Pass `"max_turns": 15` in the MAS invocation payload. The `core/streaming.py` module does this automatically. Without this, MCP tools will never be called in complex workflows.
 
 ## Lakebase MCP Server Deployment
 
