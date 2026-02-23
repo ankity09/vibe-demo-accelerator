@@ -22,8 +22,9 @@ from pyspark.sql.types import (
     DoubleType, DateType, LongType, BooleanType,
 )
 
-# Fixed reference date for deterministic output
-TODAY = date(2026, 2, 15)
+# Reference date for data generation — uses today's date so data always looks fresh.
+# Hash-based generation is still deterministic for a given date.
+TODAY = date.today()
 
 
 # ─── Deterministic hash-based generation functions ────────────────────────

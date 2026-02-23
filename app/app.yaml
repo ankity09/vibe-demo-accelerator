@@ -19,14 +19,14 @@ env:
 resources:
   - name: sql-warehouse
     sql_warehouse:
-      id: "TODO"
+      id: "TODO"                          # SQL warehouse ID from workspace
       permission: CAN_USE
   - name: mas-endpoint
     serving_endpoint:
-      name: "mas-TODO-endpoint"
+      name: "mas-TODO-endpoint"           # Format: mas-{first 8 chars of MAS tile_id}-endpoint
       permission: CAN_QUERY
   - name: database
     database:
-      instance_name: "TODO"
-      database_name: "TODO"
+      instance_name: "TODO"               # Lakebase instance name (hyphens, NOT underscores)
+      database_name: "TODO"               # Lakebase database name
       permission: CAN_CONNECT_AND_CREATE

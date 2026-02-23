@@ -211,6 +211,7 @@ async def create_item(body: ItemCreate):
 
 ### SSE Streaming Protocol
 The chat UI handles these SSE event types (all implemented in `sendChat()`):
+- `thinking` — Reasoning text from intermediate rounds (render as collapsible block above answer)
 - `delta` — Text chunk from the final answer (stream into the answer div)
 - `tool_call` — Sub-agent invoked (show as step indicator)
 - `agent_switch` — MAS switched sub-agents (update step)
@@ -218,7 +219,10 @@ The chat UI handles these SSE event types (all implemented in `sendChat()`):
 - `action_card` — Entity created/referenced (render interactive card)
 - `suggested_actions` — Follow-up prompts (render as clickable buttons)
 - `error` — Error message (display in red)
+- `session_expired` — OBO token expired; frontend should auto-reload (see Gotcha #29)
 - `[DONE]` — Stream complete
+
+**Phase tracking:** The backend buffers text per MAS round. Non-final rounds (with pending MCP approvals) emit text as `thinking`. The final round emits text as `delta`. The frontend renders `thinking` in a collapsible reasoning block and `delta` as the clean answer. `renderThinkingBlock()` splits reasoning into steps at action-phrase boundaries.
 
 ### Action Cards
 Configure `ACTION_CARD_TABLES` in `main.py` to auto-detect entities created during chat. Each card gets approve/dismiss buttons that PATCH the entity status via your API.
@@ -268,7 +272,7 @@ function formatAgentName(name) {
 
 **The template includes two starter pages that are already functional:**
 - **AI Chat** — Full SSE streaming with sub-agent step indicators, action cards, follow-up suggestions. Do NOT rebuild this — customize the suggested prompts, welcome card text, and `formatAgentName()` mapping.
-- **Agent Workflows** — Workflow cards with severity, status filters, centered modal with two-column layout (details + animated agent flow diagram), inline AI analysis. Do NOT rebuild this — customize `DOMAIN_AGENTS`, `WORKFLOW_AGENTS`, and `TYPE_LABELS`.
+- **Agent Workflows** — Workflow cards with severity, status filters, centered modal with two-column layout (details + animated agent flow diagram), inline AI analysis. Backend endpoints `GET /api/agent-overview` and `PATCH /api/workflows/{id}` are built into `main.py`. Do NOT rebuild this — customize `DOMAIN_AGENTS`, `WORKFLOW_AGENTS`, and `TYPE_LABELS`.
 
 **The template layout (sidebar + topbar) is a minimal placeholder.** Replace it entirely based on the user's layout preference. The JS navigation system (`PAGES`, `PAGE_TITLES`, `navigate()`) supports any layout — just update the nav links and add page divs.
 
@@ -299,7 +303,7 @@ function formatAgentName(name) {
 ### Phase B: Lakebase
 4. **Create Lakebase instance** — Use Databricks UI or CLI. Instance name uses HYPHENS not underscores.
 5. **Create database** — In the Lakebase instance
-6. **Apply schemas** — `databricks psql <instance> --profile=<profile> -- -d <db> -f lakebase/core_schema.sql` then `domain_schema.sql`
+6. **Apply schemas** — `databricks psql <instance> --profile=<profile> -- -d <db> -f lakebase/core_schema.sql` then `domain_schema.sql`. Then grant the app SP access: `GRANT ALL ON ALL TABLES IN SCHEMA public TO "<app-sp-client-id>";` (the GRANT in core_schema.sql is commented out as a template — run it manually with the real SP client ID)
 7. **Seed Lakebase** — Run `notebooks/03_seed_lakebase.py` (uses `generate_database_credential()`, NOT `_header_factory`)
 
 ### Phase C: AI Layer
@@ -337,6 +341,7 @@ databricks apps update <app-name> --json '{
 | Dashboard shows zeros / empty | Delta Lake tables don't exist | Run `notebooks/02_generate_data.py` first |
 | Dashboard loads but Lakebase pages empty | Lakebase schemas not applied or SP lacks table grants | Apply `core_schema.sql` + `domain_schema.sql`, grant SP access |
 | Chat returns 403 | MAS endpoint resource registered but SP lacks CAN_QUERY | Grant CAN_QUERY explicitly on the serving endpoint (Gotcha #25) — no redeploy needed |
+| Chat returns 403 (intermittent, works after page refresh) | OBO user token expired (~12h lifetime) | Implement `session_expired` auto-refresh pattern (Gotcha #29) |
 | 401 / empty `{}` from curl | Normal — Databricks Apps require browser OAuth | Open the app URL in a browser instead |
 
 ## Known Gotchas
@@ -475,7 +480,7 @@ host = "my-app.aws.databricksapps.com"
 ```
 
 ### 19. Agent Workflows page requires Lakebase tables
-The Agent Workflows page fetches data from `/api/agent-overview`, which queries the Lakebase `workflows` and `agent_actions` tables (from `core_schema.sql`). If Lakebase is not set up, the page shows zeros or errors. **You MUST create the Lakebase instance, database, and apply `core_schema.sql` BEFORE deploying the app.** The frontend `loadAgentPage()` function calls the `/api/agent-overview` endpoint — if you leave it with placeholder/hardcoded values, the KPIs will be misleading.
+The Agent Workflows page fetches data from `GET /api/agent-overview` (built into `main.py`), which queries the Lakebase `workflows` and `agent_actions` tables (from `core_schema.sql`). The approve/dismiss buttons call `PATCH /api/workflows/{id}` (also built-in). If Lakebase is not set up, the endpoint returns empty data gracefully. **You MUST create the Lakebase instance, database, and apply `core_schema.sql` BEFORE deploying the app** for the KPIs and workflow cards to show meaningful data.
 
 ### 20. Frontend has no dashboard — vibe must build it
 The scaffold template only includes two starter pages (AI Chat + Agent Workflows). There is NO dashboard page by default. Vibe must generate the dashboard, layout, and domain pages based on the user's preferences. See the "Frontend Generation Flow" section for what to ask before building.

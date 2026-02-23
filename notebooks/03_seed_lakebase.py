@@ -85,13 +85,22 @@ print("Connected to Lakebase")
 # Apply core schema (notes, agent_actions, workflows)
 # TODO: Update the path to match your workspace location
 schema_sql = open("/Workspace/Users/YOUR_EMAIL/demos/YOUR_DEMO/lakebase/core_schema.sql").read()
-for stmt in schema_sql.split(";"):
-    stmt = stmt.strip()
-    if stmt and not stmt.startswith("--"):
-        try:
-            cur.execute(stmt)
-        except Exception as e:
-            print(f"  (skipped: {str(e)[:80]})")
+
+def _run_sql_file(sql_text, label="SQL"):
+    """Execute a multi-statement SQL file safely.
+    Strips full-line comments and blank lines before splitting on semicolons."""
+    # Strip full-line comments (lines starting with --)
+    lines = [line for line in sql_text.splitlines() if not line.strip().startswith("--")]
+    cleaned = "\n".join(lines)
+    for stmt in cleaned.split(";"):
+        stmt = stmt.strip()
+        if stmt:
+            try:
+                cur.execute(stmt)
+            except Exception as e:
+                print(f"  ({label} skipped: {str(e)[:80]})")
+
+_run_sql_file(schema_sql, "core_schema")
 print("Core schema applied")
 
 # COMMAND ----------
@@ -99,13 +108,7 @@ print("Core schema applied")
 # Apply domain schema
 # TODO: Update the path to match your workspace location
 domain_sql = open("/Workspace/Users/YOUR_EMAIL/demos/YOUR_DEMO/lakebase/domain_schema.sql").read()
-for stmt in domain_sql.split(";"):
-    stmt = stmt.strip()
-    if stmt and not stmt.startswith("--"):
-        try:
-            cur.execute(stmt)
-        except Exception as e:
-            print(f"  (skipped: {str(e)[:80]})")
+_run_sql_file(domain_sql, "domain_schema")
 print("Domain schema applied")
 
 # COMMAND ----------

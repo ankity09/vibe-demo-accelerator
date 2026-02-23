@@ -247,3 +247,37 @@ manager.ka_create_or_update(name=..., knowledge_sources=[...])
 - Parse `reasoning_chain` JSONB for agent findings to include in notes
 
 **Reference:** `examples/supply_chain_routes.py` — workflow approval pattern
+
+### 29. OBO (on-behalf-of-user) token expires — app must auto-refresh
+
+The Databricks Apps proxy passes the user's OAuth token via `x-forwarded-access-token`. This token expires after ~12 hours. When it does, MAS endpoint calls return 403 but the rest of the app (pages, data) still works because those use the app SP token. Users see "Error: 403 Forbidden" in the AI chat with no indication of what went wrong.
+
+**The backend cannot refresh the token** — the OAuth session is between the user's browser and the Databricks Apps proxy. Only a browser-side page reload triggers a fresh OAuth flow.
+
+**Fix (backend):** Before `raise_for_status()` on the MAS stream, check for 401/403 when using a user token. Stream a `session_expired` event and return:
+```python
+async with client.stream("POST", url, json=payload, headers=...) as resp:
+    if resp.status_code in (401, 403) and user_token:
+        log.warning("MAS %d with user token — OBO session expired", resp.status_code)
+        yield f"data: {json.dumps({'type': 'session_expired'})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
+    resp.raise_for_status()
+```
+
+**Fix (frontend):** Handle `session_expired` in every SSE stream parser. Show a brief toast and auto-reload:
+```javascript
+function handleSessionExpired() {
+  const toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;'
+    + 'background:#1e3a5f;color:#fff;text-align:center;padding:14px;font-size:15px;';
+  toast.textContent = 'Session expired — refreshing automatically…';
+  document.body.appendChild(toast);
+  setTimeout(() => window.location.reload(), 1200);
+}
+
+// In every SSE parser, add before the 'error' handler:
+else if (evt.type === 'session_expired') { handleSessionExpired(); return; }
+```
+
+**Why not fall back to the SP token?** MAS with MCP tools requires the user's identity for on-behalf-of-user authorization. Using the SP token would break MCP tool routing and audit trails. The auto-refresh is seamless (~1-2 second reload) and gives the user a fresh token without manual intervention.

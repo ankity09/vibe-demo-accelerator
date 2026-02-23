@@ -63,9 +63,37 @@ CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status);
 CREATE INDEX IF NOT EXISTS idx_workflows_type ON workflows(workflow_type);
 
 -- ============================================================
--- Grants — ensure app service principal can access all tables
+-- Table: chat_sessions
+-- Persistent chat sessions for the AI advisor
 -- ============================================================
-GRANT ALL ON ALL TABLES IN SCHEMA public TO PUBLIC;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO PUBLIC;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO PUBLIC;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO PUBLIC;
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    session_id  VARCHAR(50) PRIMARY KEY,
+    title       VARCHAR(200) DEFAULT 'New conversation',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
+-- Table: chat_messages
+-- Individual messages within a chat session
+-- ============================================================
+CREATE TABLE IF NOT EXISTS chat_messages (
+    message_id  SERIAL PRIMARY KEY,
+    session_id  VARCHAR(50) NOT NULL REFERENCES chat_sessions(session_id) ON DELETE CASCADE,
+    role        VARCHAR(20) NOT NULL CHECK (role IN ('user', 'assistant')),
+    content     TEXT NOT NULL,
+    metadata    JSONB DEFAULT '{}',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, created_at);
+
+-- ============================================================
+-- Grants — grant access to the app service principal
+-- Replace <APP_SP_CLIENT_ID> with your Databricks App's SP client ID.
+-- Find it via: databricks apps get <app-name> --profile=<profile> | jq '.service_principal_client_id'
+-- ============================================================
+-- GRANT ALL ON ALL TABLES IN SCHEMA public TO "<APP_SP_CLIENT_ID>";
+-- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "<APP_SP_CLIENT_ID>";
+-- ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "<APP_SP_CLIENT_ID>";
+-- ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "<APP_SP_CLIENT_ID>";

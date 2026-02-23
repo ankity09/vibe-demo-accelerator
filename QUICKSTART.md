@@ -153,14 +153,13 @@ The Lakebase MCP Server enables MAS to write to Lakebase tables. It's deployed a
 
 1. Create via Databricks UI: AI/BI > Genie > New Space
 2. Add your Delta Lake tables as data sources
-3. PATCH to ensure table_identifiers are saved:
+3. PATCH tables via `serialized_space` (the ONLY way that works — `table_identifiers` is silently ignored):
    ```bash
+   # Tables must be dotted 3-part names, SORTED ALPHABETICALLY
    databricks api patch /api/2.0/genie/spaces/<space_id> --profile=<profile> --json '{
-     "table_identifiers": [
-       {"catalog": "<catalog>", "schema": "<schema>", "table": "<table1>"},
-       {"catalog": "<catalog>", "schema": "<schema>", "table": "<table2>"}
-     ]
+     "serialized_space": "{\"version\":2,\"data_sources\":{\"tables\":[{\"identifier\":\"<catalog>.<schema>.<table1>\"},{\"identifier\":\"<catalog>.<schema>.<table2>\"}]}}"
    }'
+   # Verify with: databricks api get /api/2.0/genie/spaces/<space_id>?include_serialized_space=true
    ```
 4. Grant `CAN_RUN` to the app service principal and `account users` group
 
@@ -217,9 +216,9 @@ The Lakebase MCP Server enables MAS to write to Lakebase tables. It's deployed a
 4. **Grant SQL permissions to app service principal:**
    ```bash
    # Run each GRANT separately via the Statement Execution API
-   databricks api post /api/2.0/sql/statements/ --profile=<profile> --json '{"statement": "GRANT USE CATALOG ON CATALOG <catalog> TO `<sp_client_id>`", "warehouse_id": "<wh_id>", "wait_timeout": "30s"}'
-   databricks api post /api/2.0/sql/statements/ --profile=<profile> --json '{"statement": "GRANT USE SCHEMA ON SCHEMA <catalog>.<schema> TO `<sp_client_id>`", "warehouse_id": "<wh_id>", "wait_timeout": "30s"}'
-   databricks api post /api/2.0/sql/statements/ --profile=<profile> --json '{"statement": "GRANT SELECT ON SCHEMA <catalog>.<schema> TO `<sp_client_id>`", "warehouse_id": "<wh_id>", "wait_timeout": "30s"}'
+   databricks api post /api/2.0/sql/statements/ --profile=<profile> --json '{"statement": "GRANT USE CATALOG ON CATALOG <catalog> TO `<app-sp-client-id>`", "warehouse_id": "<wh_id>", "wait_timeout": "30s"}'
+   databricks api post /api/2.0/sql/statements/ --profile=<profile> --json '{"statement": "GRANT USE SCHEMA ON SCHEMA <catalog>.<schema> TO `<app-sp-client-id>`", "warehouse_id": "<wh_id>", "wait_timeout": "30s"}'
+   databricks api post /api/2.0/sql/statements/ --profile=<profile> --json '{"statement": "GRANT SELECT ON SCHEMA <catalog>.<schema> TO `<app-sp-client-id>`", "warehouse_id": "<wh_id>", "wait_timeout": "30s"}'
    ```
    **NOTE:** Statement Execution API only supports one statement at a time. Do NOT concatenate with semicolons.
 

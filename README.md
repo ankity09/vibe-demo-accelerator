@@ -103,7 +103,7 @@ ls ~/ai-dev-kit/databricks-mcp-server/run_server.py
 ### 1. Clone the scaffold (one-time)
 
 ```bash
-git clone https://github.com/ankity09/dbx-demo-scaffold.git ~/dbx-demo-scaffold
+git clone https://github.com/databricks-field-eng/dbx-demo-scaffold.git ~/dbx-demo-scaffold
 ```
 
 Pull updates anytime with `git pull`.
@@ -181,14 +181,12 @@ The scaffold has 3 layers:
 
 ## Slash Commands
 
-The scaffold includes 4 slash commands (visible when vibe is opened in this directory):
+The scaffold includes 2 slash commands (visible when vibe is opened in this directory):
 
 | Command | What it does |
 |---------|-------------|
 | **`/new-demo`** | Full setup wizard — 9 phases from project setup to deployed app. This is the main entry point. |
 | **`/deploy-demo`** | Quick redeploy after code changes. Syncs files, checks resources, deploys, verifies health. |
-| **`/demo-health`** | Run diagnostics on a deployed demo. Checks app status, resources, health endpoint, and offers automatic fixes. |
-| **`/demo-talk-track`** | Generate a structured talk track / demo script for presenting to the customer. |
 
 ## Using with AI Dev Kit
 
@@ -208,9 +206,7 @@ AI Dev Kit is the **how you build** (tools + knowledge). This scaffold is the **
 dbx-demo-scaffold/
 ├── .claude/commands/
 │   ├── new-demo.md              # /new-demo wizard — 9-phase guided setup
-│   ├── deploy-demo.md           # /deploy-demo — quick redeploy after changes
-│   ├── demo-health.md           # /demo-health — diagnostics & auto-fix
-│   └── demo-talk-track.md       # /demo-talk-track — generate presentation script
+│   └── deploy-demo.md           # /deploy-demo — quick redeploy after changes
 ├── CLAUDE.md                    # Architecture, patterns, gotchas (vibe reads this)
 ├── README.md                    # You're here
 ├── app/
@@ -241,7 +237,9 @@ dbx-demo-scaffold/
 │   ├── DEPLOYMENT_GUIDE.md      # Deployment sequence reference
 │   ├── FRONTEND_PATTERNS.md     # Frontend conventions
 │   └── GOTCHAS.md               # Known issues and workarounds
-├── skill/                       # AI Dev Kit skill (knowledge docs)
+├── .claude-plugin/
+│   └── plugin.json              # FE plugin manifest
+├── skills/                      # AI Dev Kit skill (knowledge docs)
 │   ├── SKILL.md                 # Skill definition
 │   └── resources/               # Lakebase, Apps, data gen reference docs
 └── examples/

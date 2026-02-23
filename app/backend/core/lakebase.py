@@ -70,7 +70,7 @@ def _init_pg_pool(force: bool = False):
         1, 5, host=host, port=port, dbname=db,
         user=user, password=token, sslmode=ssl,
     )
-    log.info("Lakebase pool initialised  host=%s db=%s", host, db)
+    log.info("Lakebase pool initialised host=%s db=%s", host, db)
 
 
 def _get_pg_conn():

@@ -9,7 +9,7 @@
 <style>
 /* ═══════════════════════════════════════════════════════════════════════════
    CSS VARIABLES — Customize these to rebrand the entire app
-   Vibe: Ask the user what color scheme / brand they want, then update these.
+   TODO(vibe): Ask the user what color scheme / brand they want, then update these.
    ═══════════════════════════════════════════════════════════════════════════ */
 :root {
   --primary: #1a2332;         /* Main dark — sidebar, headers */
@@ -152,17 +152,48 @@ tr:hover td { background:#f8fafc; }
 .chat-msg.user { align-self:flex-end; background:var(--primary); color:#fff; border-bottom-right-radius:4px; }
 .chat-msg.assistant { align-self:flex-start; background:#fff; border:1px solid var(--border); border-bottom-left-radius:4px; }
 .chat-steps { font-size:11px; color:var(--text-muted); margin-bottom:6px; display:flex; flex-direction:column; gap:4px; }
-.chat-step { display:flex; align-items:center; gap:6px; padding:3px 0; }
+.chat-step { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:3px 0; }
 .chat-step .step-icon { width:16px; height:16px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:9px; flex-shrink:0; }
 .chat-step .step-icon.thinking { background:#e0e7ff; color:#4f46e5; }
 .chat-step .step-icon.agent { background:#dcfce7; color:#16a34a; }
 .chat-step .step-icon.data { background:#fef3c7; color:#d97706; }
 .chat-step .step-icon.done { background:#dcfce7; color:#16a34a; }
+.chat-step .step-label { opacity:.85; }
+.chat-step .step-preview { width:100%; margin:2px 0 2px 22px; font-size:10px; color:var(--text-muted); background:#f8f9fa; border-radius:4px; padding:4px 8px; max-height:56px; overflow:hidden; line-height:1.4; border-left:2px solid var(--accent); opacity:.8; }
+.chat-step .step-preview code { font-size:10px; background:none; padding:0; }
+.chat-step.collapsed-counter { cursor:pointer; opacity:.7; }
+.chat-step.collapsed-counter:hover { opacity:1; }
+.chat-step.step-hidden { display:none; }
+.chat-step.step-hidden .step-preview { display:none; }
 @keyframes pulse { 0%,100% { opacity:.4; } 50% { opacity:1; } }
 .chat-step.active .step-icon { animation: pulse 1.2s ease-in-out infinite; }
-#chat-input-area { padding:16px 20px; border-top:1px solid var(--border); display:flex; gap:8px; background:#fff; }
+.chat-timer { font-size:10px; color:var(--text-muted); opacity:.7; font-variant-numeric:tabular-nums; margin-top:2px; display:flex; align-items:center; gap:4px; }
+.chat-timer .timer-dot { width:6px; height:6px; border-radius:50%; background:var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.chat-timer.stopped .timer-dot { display:none; }
+.chat-timer.stopped { opacity:.5; }
+/* ─── Agent Thinking Block (collapsible reasoning) ─── */
+.thinking-block { margin-bottom:10px; border-left:2px solid var(--border,#d1d5db); padding-left:10px; }
+.thinking-toggle { font-size:12px; color:var(--text-muted,#6b7280); cursor:pointer; display:flex; align-items:center; gap:6px; user-select:none; padding:4px 0; }
+.thinking-toggle:hover { color:var(--text,#374151); }
+.thinking-chevron { font-size:10px; transition:transform .15s; display:inline-block; }
+.thinking-block.expanded .thinking-chevron { transform:rotate(90deg); }
+.thinking-body { display:none; margin-top:4px; font-size:12px; color:var(--text-muted,#6b7280); line-height:1.5; white-space:pre-line; }
+.thinking-block.expanded .thinking-body { display:block; }
+#chat-input-area { padding:16px 20px; border-top:1px solid var(--border); display:flex; gap:8px; background:#fff; align-items:center; }
 #chat-input { flex:1; padding:10px 14px; border:1px solid var(--border); border-radius:var(--radius); font-size:13px; outline:none; }
 #chat-input:focus { border-color:var(--accent); }
+.auto-approve-toggle { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-muted); white-space:nowrap; cursor:pointer; user-select:none; }
+.auto-approve-toggle input[type="checkbox"] { display:none; }
+.auto-approve-toggle .toggle-track { width:28px; height:16px; border-radius:8px; background:#cbd5e1; position:relative; transition:background .2s; flex-shrink:0; }
+.auto-approve-toggle input:checked + .toggle-track { background:var(--accent); }
+.auto-approve-toggle .toggle-track::after { content:''; position:absolute; top:2px; left:2px; width:12px; height:12px; border-radius:50%; background:#fff; transition:transform .2s; }
+.auto-approve-toggle input:checked + .toggle-track::after { transform:translateX(12px); }
+.chat-toolbar { display:flex; align-items:center; gap:6px; padding:6px 20px; border-top:1px solid var(--border); background:#f8fafc; }
+.chat-toolbar .chat-tb-btn { display:none; align-items:center; gap:4px; padding:4px 10px; border:1px solid var(--border); border-radius:var(--radius); background:#fff; font-size:11px; color:var(--text-muted); cursor:pointer; transition:all .15s; }
+.chat-toolbar .chat-tb-btn:hover { border-color:var(--accent); color:var(--text); }
+.chat-toolbar .chat-tb-btn.visible { display:inline-flex; }
+.chat-toolbar .chat-tb-btn.stop { border-color:#ef4444; color:#ef4444; }
+.chat-toolbar .chat-tb-btn.stop:hover { background:#fef2f2; }
 .suggested-prompts { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
 .suggested-prompts button { background:#fff; border:1px solid var(--border); border-radius:16px; padding:6px 12px; font-size:11px; cursor:pointer; color:var(--text-muted); transition:all .15s; }
 .suggested-prompts button:hover { border-color:var(--accent); color:var(--text); }
@@ -187,6 +218,27 @@ tr:hover td { background:#f8fafc; }
 .chat-action-card.resolved .ac-result { font-size:11px; font-weight:500; padding:4px 0; }
 .chat-action-card.resolved .ac-result.approved { color:var(--green); }
 .chat-action-card.resolved .ac-result.dismissed { color:var(--text-muted); }
+/* ─── MCP Approval Card ─── */
+.mcp-approval-card { background:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border:1px solid var(--accent); border-radius:var(--radius); padding:14px 16px; margin-top:10px; }
+.mcp-approval-header { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--accent); margin-bottom:10px; }
+.mcp-approval-icon { font-size:16px; }
+.mcp-approval-tools { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+.mcp-tool-item { display:flex; align-items:center; gap:8px; padding:8px 10px; background:rgba(255,255,255,0.05); border-radius:6px; flex-wrap:wrap; }
+.mcp-tool-icon { font-size:14px; }
+.mcp-tool-name { font-size:12px; font-weight:600; color:#e2e8f0; font-family:monospace; }
+.mcp-tool-server { font-size:11px; color:var(--text-muted); }
+.mcp-args { width:100%; display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:4px; padding-top:4px; border-top:1px solid rgba(255,255,255,0.08); }
+.mcp-arg { font-size:10px; color:var(--text-muted); }
+.mcp-arg strong { color:var(--steel-light); }
+.mcp-approval-buttons { display:flex; gap:8px; }
+.mcp-btn { padding:6px 16px; border-radius:6px; font-size:12px; font-weight:600; border:none; cursor:pointer; transition:all .15s; }
+.mcp-btn.approve { background:var(--green); color:#fff; }
+.mcp-btn.approve:hover { background:#059669; }
+.mcp-btn.deny { background:transparent; color:var(--text-muted); border:1px solid var(--border); }
+.mcp-btn.deny:hover { background:var(--red-bg); color:var(--red); border-color:var(--red); }
+.mcp-btn:disabled { opacity:.5; cursor:default; pointer-events:none; }
+.mcp-btn.approved { background:var(--green); opacity:1; }
+.mcp-btn.denied { background:var(--red); color:#fff; opacity:1; }
 .chat-followups { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
 .chat-followups button { background:#fff; border:1px solid var(--blue); color:var(--blue); border-radius:14px; padding:5px 12px; font-size:11px; cursor:pointer; transition:all .15s; }
 .chat-followups button:hover { background:var(--blue); color:#fff; }
@@ -289,20 +341,24 @@ tr:hover td { background:#f8fafc; }
 /* ═══════════════════════════════════════════════════════════════════════════
    ARCHITECTURE — INTERACTIVE PANZOOM DAG
    ═══════════════════════════════════════════════════════════════════════════ */
-.arch-banner { background:linear-gradient(135deg,var(--primary) 0%,var(--primary-light) 60%,var(--accent) 100%); color:#fff; border-radius:var(--radius); padding:24px 28px; margin-bottom:20px; text-align:center; }
-.arch-banner h2 { font-size:20px; font-weight:800; margin-bottom:4px; }
-.arch-banner .arch-subtitle { font-size:13px; opacity:.7; margin-bottom:12px; }
-.arch-banner .arch-stats { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
-.arch-banner .arch-stat-pill { background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.2); border-radius:16px; padding:3px 12px; font-size:11px; font-weight:600; }
-.arch-viewport { position:relative; height:520px; overflow:hidden; border:1px solid var(--border); border-radius:var(--radius); background-color:#fafbfc; background-image:radial-gradient(circle,#d1d5db 1px,transparent 1px); background-size:20px 20px; }
+.arch-banner { background:linear-gradient(135deg,var(--primary) 0%,var(--primary-light) 60%,var(--accent) 100%); color:#fff; border-radius:var(--radius); padding:14px 28px; margin-bottom:12px; text-align:center; }
+.arch-banner h2 { font-size:20px; font-weight:800; margin:0; }
+
+/* Column section labels */
+.arch-column-label { position:absolute; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#9ca3af; top:10px; pointer-events:none; padding:4px 12px; background:rgba(250,251,252,.9); border-radius:4px; white-space:nowrap; z-index:2; }
+
+.arch-viewport { position:relative; height:780px; overflow:hidden; border:1px solid var(--border); border-radius:var(--radius); background-color:#fafbfc; background-image:radial-gradient(circle,#d1d5db 1px,transparent 1px); background-size:20px 20px; }
 .arch-canvas { position:absolute; top:0; left:0; transform-origin:0 0; width:1860px; height:560px; }
 .arch-edge-svg { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; overflow:visible; }
 .arch-zoom-controls { position:absolute; top:12px; left:12px; z-index:10; display:flex; flex-direction:column; gap:4px; }
 .arch-zoom-btn { width:32px; height:32px; border:1px solid var(--border); border-radius:6px; background:#fff; cursor:pointer; font-size:16px; font-weight:700; color:var(--text); display:flex; align-items:center; justify-content:center; transition:all .15s; box-shadow:0 1px 3px rgba(0,0,0,.08); }
 .arch-zoom-btn:hover { background:var(--steel-bg); border-color:#9ca3af; }
-.arch-node { position:absolute; background:#fff; border:2px solid var(--border); border-radius:10px; width:280px; cursor:pointer; transition:box-shadow .2s, border-color .2s; overflow:hidden; }
+.arch-node { position:absolute; background:#fff; border:2px solid var(--border); border-radius:10px; width:280px; cursor:grab; transition:box-shadow .2s, border-color .2s; overflow:hidden; user-select:none; touch-action:none; }
+.arch-node.dragging { cursor:grabbing; box-shadow:0 12px 32px rgba(0,0,0,.18); z-index:100; transition:none; }
 .arch-node:hover { box-shadow:0 6px 24px rgba(0,0,0,.12); }
 .arch-node.selected { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.3), 0 6px 24px rgba(0,0,0,.12); }
+.arch-node-accent { position:absolute; top:0; left:0; width:4px; height:100%; border-radius:10px 0 0 10px; }
+.arch-node-type-badge { display:inline-block; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; padding:2px 6px; border-radius:3px; margin-top:2px; }
 .arch-node-header { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; font-size:12px; font-weight:600; }
 .arch-node-header.online { background:#f0fdf4; border-bottom:1px solid #bbf7d0; }
 .arch-node-header.error { background:#fef2f2; border-bottom:1px solid #fecaca; }
@@ -380,7 +436,7 @@ tr:hover td { background:#f8fafc; }
 <body>
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
-     LAYOUT — Vibe: Rebuild this to match user's preferred layout & branding.
+     LAYOUT — TODO(vibe): Rebuild this to match user's preferred layout & branding.
      This is a minimal sidebar+topbar placeholder. Replace with whatever
      the user wants (top nav, dashboard-first, dark theme, etc.)
      ═══════════════════════════════════════════════════════════════════════════ -->
@@ -390,7 +446,7 @@ tr:hover td { background:#f8fafc; }
     <span>Command Center</span>
   </div>
   <nav>
-    <!-- Vibe: Add domain pages (dashboard, inventory, etc.) as the user requests -->
+    <!-- TODO(vibe): Add domain pages (dashboard, inventory, etc.) as the user requests -->
     <a href="#" data-page="chat" class="active"><span class="icon"><i data-lucide="message-circle" style="width:16px;height:16px"></i></span> AI Chat</a>
     <a href="#" data-page="agent" id="nav-agent"><span class="icon"><i data-lucide="bot" style="width:16px;height:16px"></i></span> Agent Workflows <span class="nav-badge" id="agent-nav-badge" style="display:none">0</span></a>
     <a href="#" data-page="arch"><span class="icon"><i data-lucide="layers" style="width:16px;height:16px"></i></span> Architecture</a>
@@ -411,7 +467,18 @@ tr:hover td { background:#f8fafc; }
     <div id="page-chat" class="page active" style="display:flex;height:calc(100vh - 60px);flex-direction:column;">
       <div class="suggested-prompts" id="chat-prompts"></div>
       <div id="chat-messages" style="flex:1;overflow-y:auto;"></div>
+      <div class="chat-toolbar" id="chat-toolbar">
+        <button class="chat-tb-btn" id="btn-stop-chat" onclick="stopChat()">&#x25A0; Stop</button>
+        <button class="chat-tb-btn" id="btn-retry-chat" onclick="retryChat()">&#x21BB; Retry</button>
+        <div style="flex:1"></div>
+        <button class="chat-tb-btn visible" id="btn-clear-chat" onclick="clearChat()">&#x2715; Clear chat</button>
+      </div>
       <div id="chat-input-area">
+        <label class="auto-approve-toggle">
+          <input type="checkbox" id="auto-approve-mcp" checked>
+          <span class="toggle-track"></span>
+          <span>Auto-approve</span>
+        </label>
         <input id="chat-input" placeholder="Ask the AI advisor..." onkeydown="if(event.key==='Enter')sendChat()">
         <button class="btn btn-primary" onclick="sendChat()">Send</button>
       </div>
@@ -428,7 +495,7 @@ tr:hover td { background:#f8fafc; }
       <div id="agent-filters" style="display:flex;gap:8px;margin:12px 0 4px;align-items:center;">
         <span style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Filter:</span>
         <button class="btn btn-sm agent-filter-btn active" data-wf-filter="all" onclick="filterAgentWorkflows('all')">All</button>
-        <!-- Vibe: Add workflow type filter buttons here -->
+        <!-- TODO(vibe): Add workflow type filter buttons here -->
       </div>
       <div class="wf-section" id="agent-pending"></div>
       <div class="wf-section" id="agent-resolved"></div>
@@ -451,7 +518,7 @@ tr:hover td { background:#f8fafc; }
       <div id="flow-detail-panel" class="flow-detail-panel"></div>
     </div>
 
-    <!-- Vibe: Add domain pages here (dashboard, inventory, etc.) -->
+    <!-- TODO(vibe): Add domain pages here (dashboard, inventory, etc.) -->
 
   </div>
 </div>
@@ -511,6 +578,15 @@ function timeAgo(iso) {
   return Math.floor(diff/86400)+'d ago';
 }
 
+// ─── Session-expired auto-refresh (Gotcha #29) ─────────────────────────
+function handleSessionExpired() {
+  const toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:var(--primary,#1a2332);color:#fff;text-align:center;padding:14px 20px;font-size:15px;font-weight:500;letter-spacing:0.3px;';
+  toast.textContent = 'Session expired \u2014 refreshing automatically\u2026';
+  document.body.appendChild(toast);
+  setTimeout(() => window.location.reload(), 1200);
+}
+
 // ─── Text Utilities ──────────────────────────────────────────────────────
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -521,6 +597,16 @@ function formatMd(s) {
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
     .replace(/`(.*?)`/g, '<code style="background:#f1f5f9;padding:1px 4px;border-radius:3px;font-size:12px;">$1</code>')
     .replace(/\n/g, '<br>');
+}
+
+function renderThinkingBlock(el, parts) {
+  const full = parts.join('');
+  const steps = full.split(/(?<=[:.\!\?])\s*(?=(?:Let me|Now I|First[,: ]|Next[,: ]|I'll |I will |I can see|I need to|I should|Finally[,: ]|Then[,: ]|After ))/i).map(s => s.trim()).filter(s => s.length > 5);
+  const count = steps.length || 1;
+  const body = steps.length > 1
+    ? steps.map(s => `<div style="padding:2px 0;border-bottom:1px solid var(--border,#e5e7eb);">${escHtml(s)}</div>`).join('')
+    : escHtml(full);
+  el.innerHTML = `<div class="thinking-block"><div class="thinking-toggle" onclick="this.parentElement.classList.toggle('expanded')"><span class="thinking-chevron">\u25B8</span> Agent reasoning (${count} step${count > 1 ? 's' : ''})</div><div class="thinking-body">${body}</div></div>`;
 }
 
 // ─── Flash Messages ──────────────────────────────────────────────────────
@@ -534,7 +620,7 @@ function showFlash(msg, isError=false) {
 }
 
 // ─── Navigation ──────────────────────────────────────────────────────────
-// Vibe: Add domain pages to PAGES and PAGE_TITLES when you create them
+// TODO(vibe): Add domain pages to PAGES and PAGE_TITLES when you create them
 const PAGES = ['chat','agent','arch'];
 const PAGE_TITLES = {
   chat:  'AI Chat',
@@ -557,7 +643,8 @@ function navigate(page) {
   document.getElementById('page-title').textContent = PAGE_TITLES[page]||page;
   document.querySelectorAll('#sidebar nav a').forEach(a => a.classList.toggle('active', a.dataset.page === page));
   closeDetail();
-  // Vibe: Add page loader calls here (e.g., if (page === 'dashboard') loadDashboard();)
+  // TODO(vibe): Add page loader calls here when you create domain pages
+  // Example: if (page === 'dashboard') loadDashboard();
   if (page === 'chat') loadChat();
   else if (page === 'agent') loadAgentPage();
   else if (page === 'arch') loadArchitecture();
@@ -621,7 +708,7 @@ function updateAgentBadge(count) {
 }
 
 // ─── Agent Name Formatter ────────────────────────────────────────────────
-// Vibe: Add your MAS agent name mappings here
+// TODO(vibe): Add your MAS agent name mappings here
 function formatAgentName(name) {
   const shortName = name.includes('__') ? name.split('__').pop() : name;
   const map = {};
@@ -643,35 +730,68 @@ function askAI(prompt) {
    Do NOT modify this section unless you need to change the SSE protocol.
    ═══════════════════════════════════════════════════════════════════════════ */
 
+let _chatAbortController = null;
+let _lastUserMessage = '';
+
 async function sendChat() {
   const input = document.getElementById('chat-input');
   const msg = input.value.trim();
   if (!msg) return;
   input.value = '';
+  _lastUserMessage = msg;
+
+  const autoApprove = document.getElementById('auto-approve-mcp')?.checked ?? true;
+  // Persist auto-approve preference
+  try { localStorage.setItem('auto_approve_mcp', autoApprove ? '1' : '0'); } catch(_) {}
 
   const msgs = document.getElementById('chat-messages');
   msgs.innerHTML += `<div class="chat-msg user">${escHtml(msg)}</div>`;
 
   const container = document.createElement('div');
   container.className = 'chat-msg assistant';
-  container.innerHTML = `<div class="typing-indicator" id="chat-typing"><span></span><span></span><span></span></div><div class="chat-steps" id="chat-steps" style="display:none"></div><div id="chat-answer"></div>`;
+  container.innerHTML = `<div class="typing-indicator" id="chat-typing"><span></span><span></span><span></span></div><div class="chat-steps" id="chat-steps" style="display:none"></div><div class="chat-timer" id="chat-timer"><span class="timer-dot"></span><span class="timer-value">0s</span></div><div id="chat-thinking"></div><div id="chat-answer"></div>`;
   msgs.appendChild(container);
 
   const typingEl = container.querySelector('#chat-typing');
   const stepsEl = container.querySelector('#chat-steps');
+  const timerEl = container.querySelector('#chat-timer');
+  const timerValEl = timerEl?.querySelector('.timer-value');
+  const thinkingEl = container.querySelector('#chat-thinking');
   const answerEl = container.querySelector('#chat-answer');
   let _typingRemoved = false;
   function removeTyping() {
     if (!_typingRemoved && typingEl) { typingEl.remove(); stepsEl.style.display = ''; _typingRemoved = true; }
   }
 
+  // Timer
+  const _timerStart = Date.now();
+  const _timerInterval = setInterval(() => {
+    const elapsed = Math.round((Date.now() - _timerStart) / 1000);
+    if (timerValEl) {
+      if (elapsed < 60) timerValEl.textContent = `${elapsed}s`;
+      else timerValEl.textContent = `${Math.floor(elapsed/60)}m ${elapsed%60}s`;
+    }
+  }, 1000);
+  function stopTimer() {
+    clearInterval(_timerInterval);
+    if (timerEl) timerEl.classList.add('stopped');
+  }
+
+  // Toolbar visibility
+  const btnStop = document.getElementById('btn-stop-chat');
+  const btnRetry = document.getElementById('btn-retry-chat');
+  if (btnStop) { btnStop.classList.add('visible', 'stop'); }
+  if (btnRetry) { btnRetry.classList.remove('visible'); }
+
   msgs.scrollTop = msgs.scrollHeight;
 
+  _chatAbortController = new AbortController();
   try {
     const resp = await fetch('/api/chat', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({message: msg}),
+      body: JSON.stringify({message: msg, auto_approve_mcp: autoApprove}),
+      signal: _chatAbortController.signal,
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
@@ -679,10 +799,9 @@ async function sendChat() {
     const decoder = new TextDecoder();
     let buffer = '';
     let answerText = '';
-    let thinkingText = '';
+    let thinkingParts = [];
     let lastAgentStep = null;
     let hasSubAgents = false;
-    let maxStep = 0;
 
     while (true) {
       const {done, value} = await reader.read();
@@ -697,36 +816,67 @@ async function sendChat() {
         if (raw === '[DONE]') continue;
         let evt;
         try { evt = JSON.parse(raw); } catch { continue; }
-        const step = evt.step || 0;
-        if (step > maxStep) maxStep = step;
 
         if (evt.type === 'tool_call') {
           hasSubAgents = true;
           removeTyping();
-          deactivateSteps(stepsEl);
-          addStep(stepsEl, 'agent', `Querying ${formatAgentName(evt.agent)}...`, true);
+          const label = formatAgentName(evt.agent);
+          // Smart step reuse: update existing step if it was a sub_result from same agent
+          const lastStep = stepsEl.querySelector('.chat-step:last-of-type:not(.collapsed-counter)');
+          const lastLabel = lastStep ? lastStep.dataset.stepLabel : '';
+          if (lastLabel === `Received data from ${label}`) {
+            lastStep.dataset.stepLabel = `Querying ${label}...`;
+            lastStep.querySelector('.step-label').textContent = `Querying ${label}...`;
+            lastStep.querySelector('.step-icon').className = 'step-icon agent';
+            lastStep.classList.add('active');
+          } else {
+            deactivateSteps(stepsEl);
+            addStep(stepsEl, 'agent', `Querying ${label}...`, true);
+          }
+          _collapseSteps(stepsEl);
           lastAgentStep = evt.agent;
           msgs.scrollTop = msgs.scrollHeight;
         }
         else if (evt.type === 'agent_switch') {
           deactivateSteps(stepsEl);
-          msgs.scrollTop = msgs.scrollHeight;
         }
         else if (evt.type === 'sub_result') {
           deactivateSteps(stepsEl);
           const label = lastAgentStep ? formatAgentName(lastAgentStep) : 'sub-agent';
-          addStep(stepsEl, 'data', `Received data from ${label}`, false);
+          const stepEl = addStep(stepsEl, 'data', `Received data from ${label}`, false);
+          // Step preview: show data snippet
+          if (stepEl && evt.text && !stepEl.querySelector('.step-preview')) {
+            const preview = extractDataPreview(evt.text, label);
+            if (preview) {
+              const previewEl = document.createElement('div');
+              previewEl.className = 'step-preview';
+              previewEl.innerHTML = preview;
+              stepEl.appendChild(previewEl);
+            }
+          }
+          _collapseSteps(stepsEl);
+          msgs.scrollTop = msgs.scrollHeight;
+        }
+        else if (evt.type === 'thinking') {
+          removeTyping();
+          thinkingParts.push(evt.text);
+          renderThinkingBlock(thinkingEl, thinkingParts);
           msgs.scrollTop = msgs.scrollHeight;
         }
         else if (evt.type === 'delta') {
           removeTyping();
-          if (step <= 1 && !hasSubAgents && answerText === '') {
-            thinkingText += evt.text;
-          } else {
-            answerText += evt.text;
-            answerEl.innerHTML = formatMd(answerText);
-            msgs.scrollTop = msgs.scrollHeight;
+          if (!answerText && hasSubAgents) {
+            deactivateSteps(stepsEl);
+            addStep(stepsEl, 'done', 'Composing answer...', true);
           }
+          answerText += evt.text;
+          answerEl.innerHTML = formatMd(answerText);
+          msgs.scrollTop = msgs.scrollHeight;
+        }
+        else if (evt.type === 'mcp_approval') {
+          removeTyping();
+          answerEl.insertAdjacentHTML('beforeend', renderMcpApproval(evt.tools || []));
+          msgs.scrollTop = msgs.scrollHeight;
         }
         else if (evt.type === 'action_card') {
           answerEl.insertAdjacentHTML('beforeend', renderActionCard(evt));
@@ -736,28 +886,84 @@ async function sendChat() {
           answerEl.insertAdjacentHTML('beforeend', renderFollowups(evt.actions || []));
           msgs.scrollTop = msgs.scrollHeight;
         }
+        else if (evt.type === 'session_expired') {
+          stopTimer();
+          handleSessionExpired(); return;
+        }
         else if (evt.type === 'error') {
-          answerEl.innerHTML = `<span style="color:var(--red)">Error: ${escHtml(evt.text)}</span>`;
+          answerEl.innerHTML += `<div style="color:var(--red);margin-top:6px">Error: ${escHtml(evt.text)}</div>`;
         }
       }
     }
 
     deactivateSteps(stepsEl);
-    if (!answerText && thinkingText) {
-      answerText = thinkingText;
+    if (!answerText && thinkingParts.length) {
+      answerText = thinkingParts.join('');
+      thinkingEl.innerHTML = '';
       answerEl.innerHTML = formatMd(answerText);
-      stepsEl.innerHTML = '';
     }
     if (!answerText) answerEl.innerHTML = '<span style="color:var(--text-muted)">No response</span>';
 
   } catch(e) {
-    answerEl.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
+    if (e.name === 'AbortError') {
+      answerEl.innerHTML += '<div style="color:var(--text-muted);margin-top:6px;font-size:12px">Chat stopped by user.</div>';
+    } else {
+      // Timeout recovery: poll /api/chat/history for the answer
+      answerEl.innerHTML += `<div style="color:var(--text-muted);margin-top:6px;font-size:12px">Connection interrupted — recovering...</div>`;
+      let recovered = false;
+      for (let attempt = 0; attempt < 30; attempt++) {
+        await new Promise(r => setTimeout(r, 3000));
+        try {
+          const hr = await fetch('/api/chat/history');
+          if (!hr.ok) continue;
+          const hist = await hr.json();
+          const hm = hist.messages || [];
+          if (hm.length && hm[hm.length - 1].role === 'assistant') {
+            deactivateSteps(stepsEl);
+            answerEl.innerHTML = formatMd(hm[hm.length - 1].content);
+            recovered = true;
+            break;
+          }
+        } catch(_) { /* keep polling */ }
+      }
+      if (!recovered) {
+        answerEl.innerHTML += `<div style="color:var(--red);margin-top:6px">Connection error — try again<br><small style="opacity:.6">${escHtml(String(e))}</small></div>`;
+      }
+    }
   }
+
+  // Finalize
+  stopTimer();
+  _chatAbortController = null;
+  if (btnStop) { btnStop.classList.remove('visible', 'stop'); }
+  if (btnRetry && _lastUserMessage) { btnRetry.classList.add('visible'); }
   msgs.scrollTop = msgs.scrollHeight;
 }
 
+// ─── Stop / Retry / Clear Chat ──────────────────────────────────────────
+function stopChat() {
+  if (_chatAbortController) {
+    _chatAbortController.abort();
+    _chatAbortController = null;
+  }
+}
+
+function retryChat() {
+  if (_lastUserMessage) {
+    document.getElementById('chat-input').value = _lastUserMessage;
+    sendChat();
+  }
+}
+
+async function clearChat() {
+  document.getElementById('chat-messages').innerHTML = '';
+  _lastUserMessage = '';
+  try { await fetch('/api/chat/clear', {method:'POST'}); } catch(_) {}
+  loadChat();
+}
+
 // ─── Action Card Renderer ────────────────────────────────────────────────
-// Vibe: Customize renderActionCard() for your domain's card_types and detail fields
+// TODO(vibe): Customize renderActionCard() for your domain's card_types and detail fields
 function renderActionCard(evt) {
   const id = evt.entity_id || 0;
   const d = evt.details || {};
@@ -792,7 +998,7 @@ function renderFollowups(actions) {
   return `<div class="chat-followups">${btns}</div>`;
 }
 
-// Vibe: Update handleActionCard URLs to match your backend API routes
+// TODO(vibe): Update handleActionCard URLs to match your backend API routes
 async function handleActionCard(btn, cardType, entityId, action) {
   const card = btn.closest('.chat-action-card');
   card.querySelectorAll('.ac-btn').forEach(b => b.disabled = true);
@@ -815,20 +1021,181 @@ async function handleActionCard(btn, cardType, entityId, action) {
 function addStep(container, type, label, active) {
   const el = document.createElement('div');
   el.className = 'chat-step' + (active ? ' active' : '');
-  const icons = {thinking: '\u2726', agent: '\u25B6', data: '\u2714', done: '\u2714'};
+  el.dataset.stepType = type;
+  el.dataset.stepLabel = label;
+  const icons = {thinking: '\u2726', agent: '\u25B6', data: '\u2714', done: '\u2714', approval: '\uD83D\uDEE1\uFE0F'};
   el.innerHTML = `<span class="step-icon ${type}">${icons[type]||'\u2726'}</span><span class="step-label">${escHtml(label)}</span>`;
   container.appendChild(el);
+  return el;
 }
 
 function deactivateSteps(container) {
   container.querySelectorAll('.active').forEach(el => el.classList.remove('active'));
 }
 
+// ─── Step Collapsing ────────────────────────────────────────────────────
+const MAX_VISIBLE_STEPS = 3;
+
+function _collapseSteps(container) {
+  const steps = Array.from(container.querySelectorAll('.chat-step:not(.collapsed-counter)'));
+  // Remove existing counter
+  const existing = container.querySelector('.collapsed-counter');
+  if (existing) existing.remove();
+  // Show all steps first
+  steps.forEach(s => s.classList.remove('step-hidden'));
+  if (steps.length <= MAX_VISIBLE_STEPS) return;
+  const hideCount = steps.length - MAX_VISIBLE_STEPS;
+  for (let i = 0; i < hideCount; i++) {
+    steps[i].classList.add('step-hidden');
+  }
+  // Insert collapsed counter before first visible step
+  const counter = document.createElement('div');
+  counter.className = 'chat-step collapsed-counter';
+  counter.innerHTML = `<span class="step-icon data" style="font-size:8px">\u2022\u2022\u2022</span><span class="step-label">${hideCount} step${hideCount > 1 ? 's' : ''} completed</span>`;
+  counter.onclick = function() {
+    container.querySelectorAll('.step-hidden').forEach(s => s.classList.remove('step-hidden'));
+    this.remove();
+  };
+  container.insertBefore(counter, steps[hideCount]);
+}
+
+// ─── Data Preview Extraction ────────────────────────────────────────────
+function extractDataPreview(text, agentLabel) {
+  if (!text || text.length < 10) return '';
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      const first = parsed[0];
+      const keys = Object.keys(first).slice(0, 4);
+      const items = keys.map(k => `<strong>${k}:</strong> ${String(first[k]).slice(0, 40)}`);
+      if (parsed.length > 1) items.push(`<em>+${parsed.length - 1} more rows</em>`);
+      return items.join(' &middot; ');
+    }
+    if (typeof parsed === 'object') {
+      const keys = Object.keys(parsed).slice(0, 4);
+      return keys.map(k => `<strong>${k}:</strong> ${String(parsed[k]).slice(0, 40)}`).join(' &middot; ');
+    }
+  } catch(_) {}
+  // Plain text — show first 120 chars
+  const clean = text.replace(/\n/g, ' ').trim();
+  if (clean.length > 15) return escHtml(clean.slice(0, 120)) + (clean.length > 120 ? '...' : '');
+  return '';
+}
+
+// ─── MCP Approval Card Renderer ─────────────────────────────────────────
+function renderMcpApproval(tools) {
+  const toolsHtml = tools.map(t => {
+    const argsHtml = t.arguments ? Object.entries(t.arguments).map(([k, v]) =>
+      `<span class="mcp-arg"><strong>${escHtml(k)}:</strong> ${escHtml(String(v).slice(0, 80))}</span>`
+    ).join('') : '';
+    return `<div class="mcp-tool-item">
+      <span class="mcp-tool-icon">\u{1F527}</span>
+      <span class="mcp-tool-name">${escHtml(t.name)}</span>
+      <span class="mcp-tool-server">${escHtml(t.server || '')}</span>
+      ${argsHtml ? `<div class="mcp-args">${argsHtml}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  return `<div class="mcp-approval-card">
+    <div class="mcp-approval-header">
+      <span class="mcp-approval-icon">\uD83D\uDEE1\uFE0F</span>
+      <span>Agent requests database access</span>
+    </div>
+    <div class="mcp-approval-tools">${toolsHtml}</div>
+    <div class="mcp-approval-buttons">
+      <button class="mcp-btn approve" onclick="approveMcp(this, true)">Approve</button>
+      <button class="mcp-btn deny" onclick="approveMcp(this, false)">Deny</button>
+    </div>
+  </div>`;
+}
+
+async function approveMcp(btn, approve) {
+  const card = btn.closest('.mcp-approval-card');
+  card.querySelectorAll('.mcp-btn').forEach(b => b.disabled = true);
+  btn.textContent = approve ? 'Approved' : 'Denied';
+  btn.className = `mcp-btn ${approve ? 'approved' : 'denied'}`;
+
+  // Send approval to backend and continue streaming
+  const msgs = document.getElementById('chat-messages');
+  const container = document.createElement('div');
+  container.className = 'chat-msg assistant';
+  container.innerHTML = `<div class="chat-steps" id="chat-steps"><div class="chat-step active"><span class="step-icon agent">\u25B6</span><span class="step-label">${approve ? 'Executing approved tool...' : 'Tool denied by user'}</span></div></div><div id="chat-answer"></div>`;
+  msgs.appendChild(container);
+  const stepsEl = container.querySelector('#chat-steps');
+  const answerEl = container.querySelector('#chat-answer');
+  msgs.scrollTop = msgs.scrollHeight;
+
+  if (!approve) {
+    answerEl.innerHTML = '<span style="color:var(--text-muted)">Tool execution denied.</span>';
+    deactivateSteps(stepsEl);
+    return;
+  }
+
+  try {
+    const autoApprove = document.getElementById('auto-approve-mcp')?.checked ?? true;
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({approve_mcp: approve, auto_approve_mcp: autoApprove}),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let answerText = '';
+    let lastAgentStep = null;
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6);
+        if (raw === '[DONE]') continue;
+        let evt;
+        try { evt = JSON.parse(raw); } catch { continue; }
+
+        if (evt.type === 'tool_call') {
+          deactivateSteps(stepsEl);
+          addStep(stepsEl, 'agent', `Querying ${formatAgentName(evt.agent)}...`, true);
+          lastAgentStep = evt.agent;
+        } else if (evt.type === 'sub_result') {
+          deactivateSteps(stepsEl);
+          const label = lastAgentStep ? formatAgentName(lastAgentStep) : 'sub-agent';
+          addStep(stepsEl, 'data', `Received data from ${label}`, false);
+        } else if (evt.type === 'delta') {
+          answerText += evt.text;
+          answerEl.innerHTML = formatMd(answerText);
+        } else if (evt.type === 'mcp_approval') {
+          answerEl.insertAdjacentHTML('beforeend', renderMcpApproval(evt.tools || []));
+        } else if (evt.type === 'action_card') {
+          answerEl.insertAdjacentHTML('beforeend', renderActionCard(evt));
+        } else if (evt.type === 'suggested_actions') {
+          answerEl.insertAdjacentHTML('beforeend', renderFollowups(evt.actions || []));
+        } else if (evt.type === 'error') {
+          answerEl.innerHTML += `<div style="color:var(--red);margin-top:6px">Error: ${escHtml(evt.text)}</div>`;
+        }
+        msgs.scrollTop = msgs.scrollHeight;
+      }
+    }
+    deactivateSteps(stepsEl);
+    if (!answerText) answerEl.innerHTML = '<span style="color:var(--text-muted)">Tool executed — no additional response.</span>';
+  } catch(e) {
+    answerEl.innerHTML += `<div style="color:var(--red);margin-top:6px">Error: ${escHtml(String(e))}</div>`;
+  }
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    STARTER: AI Chat — Load + Welcome
    ═══════════════════════════════════════════════════════════════════════════ */
 
-// Vibe: Customize suggested prompts for your domain
+// TODO(vibe): Customize suggested prompts for your domain
 const SUGGESTED = [
   "What needs my attention right now?",
   "Show me the key metrics and trends.",
@@ -840,8 +1207,17 @@ function loadChat() {
   const el = document.getElementById('chat-prompts');
   el.innerHTML = SUGGESTED.map(s => `<button onclick="sendChatPrompt(this.textContent)">${s}</button>`).join('');
 
+  // Restore auto-approve preference from localStorage
+  try {
+    const saved = localStorage.getItem('auto_approve_mcp');
+    if (saved !== null) {
+      const cb = document.getElementById('auto-approve-mcp');
+      if (cb) cb.checked = saved === '1';
+    }
+  } catch(_) {}
+
   if (!document.getElementById('chat-messages').children.length) {
-    // Vibe: Customize the welcome card for your domain
+    // TODO(vibe): Customize the welcome card for your domain
     document.getElementById('chat-messages').innerHTML = `
       <div class="chat-welcome">
         <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
@@ -891,7 +1267,7 @@ function renderAgentSections(workflows, filter) {
 }
 
 function renderWfCard(wf, showActions) {
-  // Vibe: Add your workflow type labels here
+  // TODO(vibe): Add your workflow type labels here
   const TYPE_LABELS = {};
   const typeBadge = `<span class="badge badge-${wf.workflow_type}">${TYPE_LABELS[wf.workflow_type]||wf.workflow_type}</span>`;
   const actions = showActions && wf.status === 'pending_approval' ? `
@@ -933,7 +1309,7 @@ async function dismissWorkflow(id) {
 }
 
 // ─── Agent Flow Diagram ──────────────────────────────────────────────────
-// Vibe: Define your domain-specific agents and workflow-to-agent mapping
+// TODO(vibe): Define your domain-specific agents and workflow-to-agent mapping
 const DOMAIN_AGENTS = [
   {key: 'data_query',     label: 'Data Query',     subtitle: 'Genie Space',  detail: 'Queries structured data via natural language.'},
   {key: 'knowledge_base', label: 'Knowledge Base',  subtitle: 'Documents',   detail: 'Retrieves domain knowledge from the Knowledge Assistant.'},
@@ -1069,6 +1445,8 @@ async function askAIInline(btn, prompt) {
           answerText += evt.text;
           answerEl.innerHTML = formatMd(answerText);
           answerEl.scrollTop = answerEl.scrollHeight;
+        } else if (evt.type === 'session_expired') {
+          handleSessionExpired(); return;
         } else if (evt.type === 'error') {
           answerEl.innerHTML = `<span style="color:var(--red)">Error: ${escHtml(evt.text)}</span>`;
         }
@@ -1202,25 +1580,14 @@ async function loadArchitecture() {
 }
 
 function renderArchBanner(data) {
-  const nodes = data.nodes || [];
-  const stats = data.live_stats || {};
-  const onlineCount = nodes.filter(n => n.status === 'online').length;
-  const totalTables = nodes.reduce((s, n) => s + ((n.details || {}).tables || []).length, 0);
-  const agentCount = nodes.filter(n => !['orchestrator','schema_setup','data_generation','lakebase_setup','app_dashboard','mas'].includes(n.key)).length;
   document.getElementById('arch-banner').innerHTML = `
     <div class="arch-banner">
       <h2>Architecture</h2>
-      <div class="arch-subtitle">${nodes.length} components &mdash; ${agentCount} AI agents discovered from MAS</div>
-      <div class="arch-stats">
-        <span class="arch-stat-pill">${onlineCount} Components Online</span>
-        <span class="arch-stat-pill">${totalTables} Tables Connected</span>
-        <span class="arch-stat-pill">${fmt(stats.pending_workflows || 0)} Pending Workflows</span>
-      </div>
     </div>`;
 }
 
 function _buildArchNodeCard(node) {
-  const maxItems = 3, maxActions = 2;
+  const maxItems = 10, maxActions = 2;
   const items = node.display_items || [];
   const acts = node.actions || [];
   const shownItems = items.slice(0, maxItems);
@@ -1229,6 +1596,8 @@ function _buildArchNodeCard(node) {
   const moreActs = acts.length - maxActions;
   const status = node.status || 'online';
   const icon = FLOW_ICONS[node.type] || FLOW_ICONS['mcp-server'];
+  const color = node.color || '#6366f1';
+  const badge = node.type_badge || '';
 
   const itemsHtml = shownItems.map(it =>
     `<div class="arch-node-item ${it.status || 'info'}">${escHtml(it.text)}</div>`
@@ -1240,11 +1609,13 @@ function _buildArchNodeCard(node) {
   const moreActsHtml = moreActs > 0 ? `<div class="arch-node-actions-more">+${moreActs} more actions</div>` : '';
 
   return `
+    <div class="arch-node-accent" style="background:${color}"></div>
     <div class="arch-node-header ${status}">
       <span class="arch-node-title">${icon} ${escHtml(node.name)}</span>
       <span class="arch-node-status-icon ${status}">${FLOW_STATUS_ICON[status] || FLOW_STATUS_ICON.online}</span>
     </div>
     <div class="arch-node-body">
+      ${badge ? `<span class="arch-node-type-badge" style="background:${color}15;color:${color}">${badge}</span>` : ''}
       <div class="arch-node-items">${itemsHtml}${moreItemsHtml}</div>
       ${acts.length ? `<div class="arch-node-actions-label">Actions:</div>${actsHtml}${moreActsHtml}` : ''}
     </div>`;
@@ -1253,20 +1624,31 @@ function _buildArchNodeCard(node) {
 function renderArchDAG(data) {
   const canvas = document.getElementById('arch-canvas');
   const nodes = data.nodes || [];
-  canvas.querySelectorAll('.arch-node').forEach(n => n.remove());
+  const labels = data.column_labels || [];
+  // Clear previous
+  canvas.querySelectorAll('.arch-node, .arch-column-label').forEach(n => n.remove());
+  // Column labels
+  labels.forEach(lbl => {
+    const div = document.createElement('div');
+    div.className = 'arch-column-label';
+    div.style.left = lbl.x + 'px';
+    div.textContent = lbl.label;
+    canvas.appendChild(div);
+  });
+  // Nodes — with drag-to-reposition
   nodes.forEach(node => {
     const div = document.createElement('div');
-    div.className = 'arch-node';
+    div.className = 'arch-node panzoom-exclude';
     div.dataset.key = node.key;
     div.style.left = node.position.x + 'px';
     div.style.top = node.position.y + 'px';
-    div.onclick = () => selectArchNode(node.key);
     div.innerHTML = _buildArchNodeCard(node);
+    _initNodeDrag(div, node);
     canvas.appendChild(div);
   });
   // Auto-size canvas to fit all nodes
-  const maxX = Math.max(...nodes.map(n => n.position.x + 300));
-  const maxY = Math.max(...nodes.map(n => n.position.y + 200));
+  const maxX = Math.max(...nodes.map(n => n.position.x + 300), 800);
+  const maxY = Math.max(...nodes.map(n => n.position.y + 200), 400);
   canvas.style.width = maxX + 'px';
   canvas.style.height = maxY + 'px';
   drawArchEdges(data);
@@ -1282,6 +1664,7 @@ function drawArchEdges(data) {
   const nodes = data.nodes || [];
   const edges = data.edges || [];
   const nodeW = 280;
+
   const posMap = {};
   nodes.forEach(n => { posMap[n.key] = n.position; });
   const nodeH = 140;
@@ -1290,20 +1673,89 @@ function drawArchEdges(data) {
     <marker id="arch-arrow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0 0, 10 3.5, 0 7" fill="#9ca3af"/>
     </marker>
+    <marker id="arch-arrow-blue" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#3b82f6"/>
+    </marker>
+    <marker id="arch-arrow-amber" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#f59e0b"/>
+    </marker>
+    <marker id="arch-arrow-accent" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#E4002B"/>
+    </marker>
   </defs>`;
+
+  const markerMap = {'#3b82f6': 'arch-arrow-blue', '#f59e0b': 'arch-arrow-amber', '#E4002B': 'arch-arrow-accent'};
 
   edges.forEach(edge => {
     const src = posMap[edge.source];
     const tgt = posMap[edge.target];
     if (!src || !tgt) return;
+
     const x1 = src.x + nodeW;
     const y1 = src.y + nodeH / 2;
     const x2 = tgt.x;
     const y2 = tgt.y + nodeH / 2;
+
     const d = smoothstepPath(x1, y1, x2, y2);
-    svgContent += `<path d="${d}" fill="none" stroke="#d1d5db" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arch-arrow)"/>`;
+    const color = edge.color || '#d1d5db';
+    const marker = markerMap[color] || 'arch-arrow';
+    const isAccent = color === '#E4002B';
+    const strokeW = isAccent ? 2.5 : 2;
+    const dash = isAccent ? '' : 'stroke-dasharray="6 4"';
+    svgContent += `<path d="${d}" fill="none" stroke="${color}" stroke-width="${strokeW}" ${dash} marker-end="url(#${marker})"/>`;
   });
+
   svg.innerHTML = svgContent;
+}
+
+/* ─── Node Drag-to-Reposition ─── */
+const DRAG_THRESHOLD = 5;
+
+function _initNodeDrag(div, node) {
+  let startX, startY, origLeft, origTop, dragged;
+
+  div.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    div.setPointerCapture(e.pointerId);
+    dragged = false;
+    const scale = _panzoomInstance ? _panzoomInstance.getScale() : 1;
+    startX = e.clientX;
+    startY = e.clientY;
+    origLeft = parseInt(div.style.left) || 0;
+    origTop = parseInt(div.style.top) || 0;
+
+    function onMove(ev) {
+      const dx = (ev.clientX - startX) / scale;
+      const dy = (ev.clientY - startY) / scale;
+      if (!dragged && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+      if (!dragged) {
+        dragged = true;
+        div.classList.add('dragging');
+      }
+      const newX = Math.max(0, origLeft + dx);
+      const newY = Math.max(0, origTop + dy);
+      div.style.left = newX + 'px';
+      div.style.top = newY + 'px';
+      node.position.x = newX;
+      node.position.y = newY;
+      drawArchEdges(_archData);
+    }
+
+    function onUp(ev) {
+      div.releasePointerCapture(ev.pointerId);
+      div.removeEventListener('pointermove', onMove);
+      div.removeEventListener('pointerup', onUp);
+      div.classList.remove('dragging');
+      if (!dragged) {
+        selectArchNode(node.key);
+      }
+    }
+
+    div.addEventListener('pointermove', onMove);
+    div.addEventListener('pointerup', onUp);
+  });
 }
 
 function initPanzoom() {
@@ -1414,47 +1866,52 @@ function deSelectTable(tableName) {
 
   const cached = _deCache[tableName];
   if (cached && cached.columns && cached.columns.length) {
-    content.innerHTML = _deRenderCards(tableName, cached.columns, cached.rows, cached.row_count, !cached.rows);
+    content.innerHTML = _deRenderCards(tableName, cached.columns, cached.rows, cached.row_count, !cached.rows, cached.queryMs);
   } else {
     content.innerHTML = `<div class="de-loading"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.49-8.49l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M7.76 7.76L4.93 4.93"/></svg> Loading...</div>`;
   }
 
   const ctrl = new AbortController();
   _deAbort = ctrl;
+  const t0 = performance.now();
   fetch(`/api/architecture/table-data?table=${encodeURIComponent(tableName)}&source=${_deSource}&limit=20`, { signal: ctrl.signal })
     .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
     .then(data => {
       if (ctrl.signal.aborted) return;
-      _deCache[tableName] = { columns: data.columns, rows: data.rows, row_count: data.row_count };
+      const queryMs = performance.now() - t0;
+      _deCache[tableName] = { columns: data.columns, rows: data.rows, row_count: data.row_count, queryMs };
       const stillActive = document.querySelector('.de-table-list li.active');
       if (stillActive && stillActive.dataset.table === tableName) {
-        content.innerHTML = _deRenderCards(tableName, data.columns, data.rows, data.row_count, false);
+        content.innerHTML = _deRenderCards(tableName, data.columns, data.rows, data.row_count, false, queryMs);
       }
     })
     .catch(e => {
       if (e.name === 'AbortError') return;
       if (ctrl.signal.aborted) return;
       if (cached && cached.columns && cached.columns.length) {
-        content.innerHTML = _deRenderCards(tableName, cached.columns, null, cached.row_count, false);
+        content.innerHTML = _deRenderCards(tableName, cached.columns, null, cached.row_count, false, cached.queryMs);
       } else {
         content.innerHTML = `<div class="de-empty-state">Failed to load table data</div>`;
       }
     });
 }
 
-function _deRenderCards(tableName, columns, rows, rowCount, loading) {
+function _deRenderCards(tableName, columns, rows, rowCount, loading, queryMs) {
   let html = '';
   const countLabel = typeof rowCount === 'number' ? `${rowCount.toLocaleString()} rows` : '';
+  const timerBadge = queryMs ? `<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;color:#f59e0b;margin-left:8px" title="Query execution time">&#9889; ${queryMs.toFixed(1)}ms</span>` : '';
+  // Sample data card
   html += `<div class="de-card">
-    <div class="de-card-header"><span>Schema &middot; ${escHtml(tableName.replace(/_/g, ' '))}</span><span style="font-weight:400;text-transform:none;letter-spacing:0">${countLabel}</span></div>
-    <div class="de-card-body">${_deRenderSchemaTable(columns)}</div>
-  </div>`;
-  html += `<div class="de-card">
-    <div class="de-card-header"><span>Sample Data</span><span style="font-weight:400;text-transform:none;letter-spacing:0">${rows ? rows.length + ' rows' : ''}</span></div>
+    <div class="de-card-header"><span>Sample Data &middot; ${escHtml(tableName.replace(/_/g, ' '))}</span><span style="font-weight:400;text-transform:none;letter-spacing:0">${rows ? rows.length + ' rows' : ''}${timerBadge}</span></div>
     <div class="de-card-body">${loading
       ? '<div class="de-loading"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.49-8.49l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M7.76 7.76L4.93 4.93"/></svg> Loading sample data...</div>'
       : rows ? _deRenderSampleTable(columns, rows) : '<div class="de-empty-state">No sample data available</div>'
     }</div>
+  </div>`;
+  // Schema card
+  html += `<div class="de-card">
+    <div class="de-card-header"><span>Schema &middot; ${escHtml(tableName.replace(/_/g, ' '))}</span><span style="font-weight:400;text-transform:none;letter-spacing:0">${countLabel}</span></div>
+    <div class="de-card-body">${_deRenderSchemaTable(columns)}</div>
   </div>`;
   return html;
 }

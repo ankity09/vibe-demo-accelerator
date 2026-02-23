@@ -9,7 +9,7 @@ from backend.core.lakebase import (
     write_pg,
     _init_pg_pool,
 )
-from backend.core.streaming import stream_mas_chat, _get_mas_auth
+from backend.core.streaming import stream_mas_chat, _sse_keepalive, _get_mas_auth, get_mcp_pending, clear_mcp_pending
 from backend.core.health import health_check
 from backend.core.helpers import _safe, _extract_agent_response
 
@@ -19,7 +19,10 @@ __all__ = [
     "write_pg",
     "_init_pg_pool",
     "stream_mas_chat",
+    "_sse_keepalive",
     "_get_mas_auth",
+    "get_mcp_pending",
+    "clear_mcp_pending",
     "health_check",
     "_safe",
     "_extract_agent_response",

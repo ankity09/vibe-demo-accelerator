@@ -31,7 +31,7 @@ Check the current working directory for `demo-config.yaml`:
    - "I found a `demo-config.yaml` but it was created before the project setup phase existed. Your generated files may be mixed into the scaffold directory."
    - Ask: "Would you like to: (a) Migrate — I'll create a new project directory and move your files there, (b) Continue in-place — keep working in this directory as-is, (c) Start fresh — begin a brand new project"
 
-3. **If NO `demo-config.yaml` AND current directory has scaffold sentinel files (`skill/` directory AND `QUICKSTART.md`)** — Fresh start from the scaffold. Continue to Step 0.1.
+3. **If NO `demo-config.yaml` AND current directory has scaffold sentinel files (`skills/` directory AND `QUICKSTART.md`)** — Fresh start from the scaffold. Continue to Step 0.1.
 
 4. **If NO `demo-config.yaml` AND current directory does NOT have scaffold sentinels** — The user isn't in the scaffold directory. Ask: "I don't see the scaffold files here. Would you like to: (a) Create a new project in this directory, (b) Point me to the scaffold directory to copy from"
 
@@ -52,7 +52,7 @@ Apply these checks in order:
 
 1. **If the path is INSIDE the scaffold directory** (is a subdirectory of the current working directory) — Reject with: "The project directory can't be inside the scaffold — that defeats the purpose of separation. Please choose a sibling or external directory."
 
-2. **If the path exists and contains files** — Warn the user: List the files/directories present and ask: "This directory already has files. Should I copy the scaffold here without overwriting existing files? (Existing files will be preserved, new scaffold files will be added.)"
+2. **If the path exists and contains files** — Warn the user: List the files/directories present and ask: "This directory already has files. Should I copy the scaffold here? (Existing files with the same name will be overwritten by scaffold versions. Any files not in the scaffold will be preserved.)"
 
 3. **If the path exists but is empty** — Proceed silently.
 
