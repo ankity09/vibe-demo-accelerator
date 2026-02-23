@@ -1122,6 +1122,19 @@ async def get_agent_overview():
         return {"kpis": {}, "workflows": [], "agent_actions_recent": []}
 
 
+@app.get("/api/workflows/{workflow_id}")
+async def get_workflow(workflow_id: int):
+    """Return a single workflow by ID (used by the workflow detail modal)."""
+    rows = await asyncio.to_thread(
+        run_pg_query,
+        "SELECT * FROM workflows WHERE workflow_id = %s",
+        (workflow_id,),
+    )
+    if not rows:
+        raise HTTPException(404, f"Workflow {workflow_id} not found")
+    return rows[0]
+
+
 @app.patch("/api/workflows/{workflow_id}")
 async def update_workflow(workflow_id: int, body: dict):
     """Update a workflow's status (approve/dismiss)."""

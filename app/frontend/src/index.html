@@ -580,6 +580,8 @@ function timeAgo(iso) {
 
 // ─── Session-expired auto-refresh (Gotcha #29) ─────────────────────────
 function handleSessionExpired() {
+  // Preserve the current page so user returns here after reload
+  try { sessionStorage.setItem('_active_page', currentPage || 'dashboard'); } catch {}
   const toast = document.createElement('div');
   toast.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:var(--primary,#1a2332);color:#fff;text-align:center;padding:14px 20px;font-size:15px;font-weight:500;letter-spacing:0.3px;';
   toast.textContent = 'Session expired \u2014 refreshing automatically\u2026';
@@ -628,7 +630,9 @@ const PAGE_TITLES = {
   arch:  'Architecture',
 };
 
+let currentPage = 'chat';
 function navigate(page) {
+  currentPage = page;
   PAGES.forEach(p => {
     const pel = document.getElementById('page-'+p);
     if (!pel) return;
@@ -653,6 +657,12 @@ function navigate(page) {
 document.querySelectorAll('#sidebar nav a').forEach(a => {
   a.addEventListener('click', e => { e.preventDefault(); navigate(a.dataset.page); });
 });
+
+// Restore page after session-expired reload
+try {
+  const saved = sessionStorage.getItem('_active_page');
+  if (saved) { sessionStorage.removeItem('_active_page'); navigate(saved); }
+} catch {}
 
 // ─── Detail Panel ────────────────────────────────────────────────────────
 function openDetail(title, html) {
@@ -841,6 +851,7 @@ async function sendChat() {
           deactivateSteps(stepsEl);
         }
         else if (evt.type === 'sub_result') {
+          removeTyping();
           deactivateSteps(stepsEl);
           const label = lastAgentStep ? formatAgentName(lastAgentStep) : 'sub-agent';
           const stepEl = addStep(stepsEl, 'data', `Received data from ${label}`, false);
@@ -853,6 +864,11 @@ async function sendChat() {
               previewEl.innerHTML = preview;
               stepEl.appendChild(previewEl);
             }
+          }
+          // Show sub-agent reasoning in thinking block
+          if (evt.text && evt.text.length > 10) {
+            thinkingParts.push(evt.text);
+            renderThinkingBlock(thinkingEl, thinkingParts);
           }
           _collapseSteps(stepsEl);
           msgs.scrollTop = msgs.scrollHeight;

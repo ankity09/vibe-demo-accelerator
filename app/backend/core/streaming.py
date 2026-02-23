@@ -258,9 +258,15 @@ async def stream_mas_chat(
                     json=payload,
                     headers={"Authorization": auth, "Content-Type": "application/json"},
                 ) as resp:
-                    # Detect expired OBO token — tell frontend to auto-refresh
+                    # Detect expired OBO token — fallback to SP token before giving up
                     if resp.status_code in (401, 403) and user_token:
-                        log.warning("MAS %d with user token — OBO session expired, telling frontend to refresh", resp.status_code)
+                        log.warning("MAS %d with user token — falling back to SP token", resp.status_code)
+                        _, auth = await asyncio.to_thread(_get_mas_auth)
+                        user_token = ""  # prevent infinite retry
+                        continue  # retry the while loop with SP auth
+                    elif resp.status_code in (401, 403):
+                        # SP token also failed — signal frontend to refresh
+                        log.error("MAS %d with SP token — session truly expired", resp.status_code)
                         yield f"data: {json.dumps({'type': 'session_expired'})}\n\n"
                         yield "data: [DONE]\n\n"
                         return
@@ -321,6 +327,8 @@ async def stream_mas_chat(
 
                             elif item_type == "message":
                                 content = item.get("content", [])
+                                role = item.get("role", "")
+                                log.info("MESSAGE [round=%d step=%d] role=%s blocks=%s", approval_round, step, role, [b.get("type") for b in content])
                                 for block in content:
                                     text_val = block.get("text", "")
                                     if text_val.startswith("<name>") and text_val.endswith("</name>"):
@@ -328,12 +336,16 @@ async def stream_mas_chat(
                                         yield f"data: {json.dumps({'type': 'agent_switch', 'agent': agent_name, 'step': step})}\n\n"
                                     elif text_val and len(text_val) > 5 and not text_val.startswith("<"):
                                         yield f"data: {json.dumps({'type': 'sub_result', 'text': text_val, 'step': step})}\n\n"
-                                if item.get("role") == "assistant" and step > 1:
+                                # Capture final text from message items (accept both block types, relaxed role check)
+                                if step > 1 and role in ("assistant", ""):
                                     for block in content:
-                                        if block.get("type") == "output_text" and block.get("text"):
+                                        block_type = block.get("type", "text")
+                                        if block_type in ("output_text", "text") and block.get("text"):
                                             final_text = block["text"]
+                                            log.info("FINAL TEXT captured from message (step=%d, role=%s, len=%d)", step, role, len(final_text))
 
                 # ── Flush buffered text with correct type ──
+                log.info("FLUSH [round=%d] pending_approvals=%d round_chunks=%d final_text_len=%d", approval_round, len(pending_approvals), len(round_text_chunks), len(final_text))
                 if not pending_approvals:
                     # Final round — emit text as delta (answer)
                     if round_text_chunks:
