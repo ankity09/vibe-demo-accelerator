@@ -360,7 +360,12 @@ def _read_mas_config_from_disk() -> list[dict]:
         with open(config_path) as f:
             data = json.load(f)
         agents = data.get("agents", [])
-        return [a for a in agents if not any(k.startswith("$") for k in a.keys())]
+        # Strip $comment/$note keys but keep agents that have real keys
+        return [
+            {k: v for k, v in a.items() if not k.startswith("$")}
+            for a in agents
+            if not all(k.startswith("$") for k in a.keys())
+        ]
     except Exception as e:
         log.warning("Could not read MAS config from disk: %s", e)
         return []
@@ -369,7 +374,7 @@ def _read_mas_config_from_disk() -> list[dict]:
 async def _fetch_mas_agents() -> list[dict]:
     """Fetch MAS agents: live API first, then demo-config, then mas_config.json fallback."""
     tile = MAS_TILE_ID
-    if tile:
+    if tile and tile != "TODO":
         try:
             ep = await asyncio.to_thread(w.serving_endpoints.get, f"mas-{tile}-endpoint")
             full_uuid = ep.tile_endpoint_metadata.tile_id
