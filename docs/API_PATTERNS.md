@@ -63,15 +63,33 @@ databricks api patch /api/2.0/permissions/genie/<space_id> --json '{
 {"agent_type": "genie-space", "genie_space": {"id": "<space_id>"}}
 {"agent_type": "knowledge-assistant", "knowledge_assistant": {"knowledge_assistant_id": "<ka_id>"}}
 {"agent_type": "unity-catalog-function", "unity_catalog_function": {"uc_path": {"catalog": "...", "schema": "...", "name": "..."}}}
-{"agent_type": "external-mcp-server", "mcp_connection": {"mcp_connection_id": "<connection_id>"}}
+{"agent_type": "external-mcp-server", "external_mcp_server": {"connection_name": "<connection_name>"}}
 ```
 
 ### Create MAS
 
+**IMPORTANT:** The POST endpoint fails with `external-mcp-server` agents in the initial payload (Gotcha #34). Create with simpler agents first, then PATCH to add MCP agents.
+
 ```bash
+# Step 1: POST with genie-space only (no MCP agents)
 databricks api post /api/2.0/multi-agent-supervisors --json '{
   "name": "my-demo-supervisor",
   "description": "Multi-agent supervisor for ...",
+  "instructions": "You are an AI assistant...",
+  "agents": [
+    {
+      "agent_type": "genie-space",
+      "genie_space": {"id": "<genie_space_id>"},
+      "name": "data-analyst",
+      "description": "Query analytics data about ..."
+    }
+  ]
+}' --profile=<profile>
+# Returns tile_id in response
+
+# Step 2: PATCH to add MCP agent (include ALL agents + name)
+databricks api patch /api/2.0/multi-agent-supervisors/<full-uuid-tile-id> --json '{
+  "name": "my-demo-supervisor",
   "agents": [
     {
       "agent_type": "genie-space",
@@ -81,7 +99,7 @@ databricks api post /api/2.0/multi-agent-supervisors --json '{
     },
     {
       "agent_type": "external-mcp-server",
-      "mcp_connection": {"mcp_connection_id": "<connection_id>"},
+      "external_mcp_server": {"connection_name": "<connection_name>"},
       "name": "mcp-lakebase-connection",
       "description": "Write operational data to Lakebase ..."
     }
@@ -126,7 +144,18 @@ Create in Databricks UI: **Catalog > External Connections > Create Connection**
 **Key rules:**
 - Host MUST include `https://` scheme (Gotcha #18)
 - Base path MUST have trailing slash on `/mcp/` (Gotcha #15)
-- SP OAuth secrets are created at Account Console level, not workspace
+
+**Creating SP OAuth secrets:**
+```bash
+# 1. Find the SP's numeric ID (NOT the application/client UUID)
+databricks service-principals list --profile=<profile> -o json | \
+  jq '.[] | select(.applicationId == "<client-uuid>") | .id'
+
+# 2. Create a secret using the numeric ID
+databricks api post /api/2.0/accounts/servicePrincipals/<numeric-id>/credentials/secrets \
+  --profile=<profile>
+# Returns: {"secret": "dose...", "id": "...", ...}
+```
 
 ---
 
@@ -201,7 +230,14 @@ databricks apps deploy <app-name> --source-code-path <path> --profile=<profile>
 
 # Grant permissions explicitly (resource registration doesn't reliably grant them)
 # SQL warehouse CAN_USE, catalog USE_CATALOG/USE_SCHEMA/SELECT, MAS CAN_QUERY
-databricks api patch /api/2.0/permissions/serving-endpoints/<mas-endpoint-name> \
+
+# IMPORTANT: Permissions API uses the endpoint UUID, not its name (Gotcha #25)
+# Step 1: Get the UUID
+databricks api get /api/2.0/serving-endpoints --profile=<profile> | \
+  jq '.endpoints[] | select(.name == "mas-<tile-8-chars>-endpoint") | .id'
+
+# Step 2: Grant using UUID
+databricks api patch /api/2.0/permissions/serving-endpoints/<endpoint-uuid> \
   --json '{"access_control_list":[{"service_principal_name":"<app-sp>","permission_level":"CAN_QUERY"}]}' \
   --profile=<profile>
 ```

@@ -33,10 +33,17 @@ All domain tables should appear with row counts > 0.
 ## Phase B: Lakebase
 
 ### Step 4: Create Lakebase instance
-Use Databricks UI or CLI. Instance names use **HYPHENS** not underscores (Gotcha #5).
+Instance names use **HYPHENS** not underscores (Gotcha #5). `--capacity` is **required** (Gotcha #30).
+```bash
+databricks database create-database-instance <instance-name> --capacity CU_1 --profile=<profile>
+# Takes ~6 minutes. Poll until state is AVAILABLE (not RUNNING — Gotcha #31):
+databricks database get-database-instance <instance-name> --profile=<profile> -o json | jq '.state'
+```
 
 ### Step 5: Create database
-In the Lakebase instance, create the database for this demo.
+```bash
+databricks psql <instance> --profile=<profile> -- -c "CREATE DATABASE <db_name>;"
+```
 
 ### Step 6: Apply schemas
 ```bash
@@ -47,15 +54,22 @@ databricks psql <instance> --profile=<profile> -- -d <db> -f lakebase/core_schem
 databricks psql <instance> --profile=<profile> -- -d <db> -f lakebase/domain_schema.sql
 ```
 
+**Do NOT grant SP access yet** — the SP role doesn't exist until the app's database resource is registered and redeployed (Gotcha #33). Grants happen after Step 10/14.
+
 ### Step 7: Seed Lakebase
-Run `notebooks/03_seed_lakebase.py`. Uses `generate_database_credential()` (NOT `_header_factory`).
-
-If the serverless SDK is missing `w.database`, add `%pip install --upgrade databricks-sdk` first and restart (Gotcha #22).
-
-**Alternative (skip notebook):** Seed via CLI:
+**Recommended: Seed via local CLI** (not serverless notebooks — Gotcha #32). Serverless runtimes run as ephemeral `spark-*` users that have no Lakebase role.
 ```bash
+# Option A: Direct SQL file
 databricks psql <instance> --profile=<profile> -- -d <database> -f /tmp/seed.sql
+
+# Option B: Local Python script using CLI credentials
+databricks database generate-database-credential \
+  --json '{"instance_names": ["<instance>"], "request_id": "seed"}' \
+  --profile=<profile>
+# Then connect with psycopg2: user=<your-email>, password=<token>
 ```
+
+**Fallback (notebook):** If you must use a notebook, add `%pip install --upgrade databricks-sdk` as the first cell, restart Python, and set `PG_USER` to your email (not empty string). See Gotcha #22.
 
 ---
 

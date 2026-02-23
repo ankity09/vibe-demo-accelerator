@@ -333,7 +333,7 @@ def _agents_from_demo_config() -> list[dict]:
             if not agent.get("name") or agent["name"] == sa_type:
                 agent["name"] = sa.get("name", "analytics_genie")
         elif agent_type == "external-mcp-server":
-            agent["mcp_connection"] = {"mcp_connection_id": sa.get("mcp_connection_id", "")}
+            agent["external_mcp_server"] = {"connection_name": sa.get("connection_name", sa.get("mcp_connection_id", ""))}
             if not agent.get("name") or agent["name"] == sa_type:
                 agent["name"] = "lakebase_mcp"
         elif agent_type == "knowledge-assistant":

@@ -56,8 +56,8 @@
       "$comment": "External MCP Server agent — Lakebase write access for the MAS",
       "$note": "Create an MCP connection in the workspace first, then reference it here.",
       "agent_type": "external-mcp-server",
-      "mcp_connection": {
-        "mcp_connection_id": "TODO"
+      "external_mcp_server": {
+        "connection_name": "TODO"
       },
       "name": "mcp-lakebase-connection",
       "description": "Write operational data to Lakebase PostgreSQL tables."

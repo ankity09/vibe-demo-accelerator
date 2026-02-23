@@ -125,8 +125,8 @@ databricks api patch "/api/2.0/multi-agent-supervisors/<tile-id>" --json '{
   "agents": [
     {
       "agent_type": "external-mcp-server",
-      "mcp_connection": {
-        "mcp_connection_id": "<connection-id>"
+      "external_mcp_server": {
+        "connection_name": "<uc-http-connection-name>"
       },
       "name": "mcp-lakebase-connection",
       "description": "Execute Lakebase database operations..."

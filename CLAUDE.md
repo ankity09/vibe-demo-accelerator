@@ -301,16 +301,19 @@ function formatAgentName(name) {
 3. **Verify tables** — `SHOW TABLES IN <catalog>.<schema>` should list your domain tables
 
 ### Phase B: Lakebase
-4. **Create Lakebase instance** — Use Databricks UI or CLI. Instance name uses HYPHENS not underscores.
-5. **Create database** — In the Lakebase instance
-6. **Apply schemas** — `databricks psql <instance> --profile=<profile> -- -d <db> -f lakebase/core_schema.sql` then `domain_schema.sql`. Then grant the app SP access: `GRANT ALL ON ALL TABLES IN SCHEMA public TO "<app-sp-client-id>";` (the GRANT in core_schema.sql is commented out as a template — run it manually with the real SP client ID)
-7. **Seed Lakebase** — Run `notebooks/03_seed_lakebase.py` (uses `generate_database_credential()`, NOT `_header_factory`)
+4. **Create Lakebase instance** — `databricks database create-database-instance <name> --capacity CU_1 --profile=<profile>`. Instance name uses HYPHENS not underscores. Takes ~6 min. Poll until state is `AVAILABLE` (NOT `RUNNING` — see Gotcha #33):
+```bash
+databricks database get-database-instance <name> --profile=<profile> -o json | jq '.state'
+```
+5. **Create database** — `databricks psql <instance> --profile=<profile> -- -c "CREATE DATABASE <db_name>;"`
+6. **Apply schemas** — `databricks psql <instance> --profile=<profile> -- -d <db> -f lakebase/core_schema.sql` then `domain_schema.sql`. **Do NOT grant SP access yet** — the SP role doesn't exist until the app's database resource is registered and redeployed (see Gotcha #35). Grants happen after Step 14/15.
+7. **Seed Lakebase** — **Recommended: Seed via local CLI** (not serverless notebooks — see Gotcha #34). Serverless runtimes run as ephemeral `spark-*` users that have no Lakebase role. Use `databricks psql <instance> --profile=<profile> -- -d <db> -f /tmp/seed.sql` or a local Python script with `generate-database-credential` (CLI requires `request_id` in the JSON payload — see Gotcha #36).
 
 ### Phase C: AI Layer
 8. **Create Genie Space** — POST with `serialized_space` to create a blank space, then PATCH title/description, then PATCH tables via `serialized_space` with sorted dotted identifiers (NOT `table_identifiers` — that field is silently ignored). Verify with `?include_serialized_space=true`. See Gotcha #10 for full commands.
 9. **Grant Genie permissions** — `CAN_RUN` to app SP and users via `PATCH /api/2.0/permissions/genie/<space_id>` (note: just `genie`, NOT `genie/spaces` -- see Gotcha #11)
 10. **Deploy Lakebase MCP Server** — Deploy `lakebase-mcp-server/` as a separate app, create UC HTTP connection (see Lakebase MCP section)
-11. **Create MAS** — POST to `/api/2.0/multi-agent-supervisors` with agent config. Agent types use **kebab-case**: `genie-space` (with `genie_space.id`), `external-mcp-server` (with `mcp_connection.mcp_connection_id`), `knowledge-assistant`, `unity-catalog-function`. After creation, discover the full tile UUID via serving endpoints (see Gotcha #22).
+11. **Create MAS** — POST to `/api/2.0/multi-agent-supervisors` with agent config. Agent types use **kebab-case**: `genie-space` (with `genie_space.id`), `external-mcp-server` (with `external_mcp_server.connection_name`), `knowledge-assistant`, `unity-catalog-function`. **IMPORTANT:** POST fails with `external-mcp-server` agents — create with simpler agents first (POST), then add MCP agents via PATCH (see Gotcha #34). After creation, discover the full tile UUID via serving endpoints (see Gotcha #24).
 
 ### Phase D: App Deployment (do this LAST)
 12. **Fill app.yaml** — Set warehouse ID, catalog, schema, MAS tile ID (first 8 chars), Lakebase instance/db
@@ -448,9 +451,9 @@ All MAS agent types use **kebab-case**, not snake_case. The correct formats are:
 {"agent_type": "genie-space", "genie_space": {"id": "..."}}
 {"agent_type": "knowledge-assistant", "knowledge_assistant": {"knowledge_assistant_id": "..."}}
 {"agent_type": "unity-catalog-function", "unity_catalog_function": {"uc_path": {"catalog": "...", "schema": "...", "name": "..."}}}
-{"agent_type": "external-mcp-server", "mcp_connection": {"mcp_connection_id": "..."}}
+{"agent_type": "external-mcp-server", "external_mcp_server": {"connection_name": "..."}}
 ```
-**Common mistake:** Using `databricks_genie` instead of `genie-space`, or `mcp_connection` instead of `external-mcp-server`.
+**Common mistake:** Using `databricks_genie` instead of `genie-space`, or `mcp_connection.mcp_connection_id` instead of `external_mcp_server.connection_name`.
 
 ### 13. Empty app = data notebooks not run
 If the app dashboard shows empty/zero metrics, the Delta Lake tables don't exist yet. You MUST run `02_generate_data.py` BEFORE deploying the app. The app queries tables that this notebook creates.
@@ -468,7 +471,19 @@ MAS agents serialize nested objects as JSON strings instead of native objects. T
 MAS External MCP Server goes through a Databricks MCP proxy that authenticates as a service principal. You must grant `CAN_USE` to the `users` group on the Lakebase MCP app, otherwise the proxy gets 401.
 
 ### 18. OAuth M2M for UC HTTP Connection
-For the UC HTTP connection to the Lakebase MCP server, use Databricks OAuth M2M (not PAT). SP OAuth secrets must be created at the **Account Console** level (not workspace API). Connection fields: `host`, `port=443`, `base_path=/mcp/`, `client_id`, `client_secret`, `oauth_scope=all-apis`.
+For the UC HTTP connection to the Lakebase MCP server, use Databricks OAuth M2M (not PAT). SP OAuth secrets can be created via the workspace API. Connection fields: `host`, `port=443`, `base_path=/mcp/`, `client_id`, `client_secret`, `oauth_scope=all-apis`.
+
+**Creating SP OAuth secrets:**
+```bash
+# 1. Find the SP's numeric ID (NOT the application/client UUID)
+databricks service-principals list --profile=<profile> -o json | \
+  jq '.[] | select(.applicationId == "<client-uuid>") | .id'
+
+# 2. Create a secret using the numeric ID
+databricks api post /api/2.0/accounts/servicePrincipals/<numeric-id>/credentials/secrets \
+  --profile=<profile>
+# Returns: {"secret": "dose...", "id": "...", ...}
+```
 
 **CRITICAL: The `host` field MUST include the `https://` scheme.** Without it, you get a "Missing cloud file system scheme" error.
 ```
@@ -511,8 +526,15 @@ databricks api get /api/2.0/serving-endpoints --profile=<profile> | \
 
 ### 25. MAS serving endpoint CAN_QUERY must be granted explicitly
 Registering the `mas-endpoint` resource via `databricks apps update` with `"permission": "CAN_QUERY"` declares the intent but does NOT reliably grant the permission to the app SP. The chat endpoint returns 403 even though the resource is registered. **Fix:** Grant CAN_QUERY explicitly on the serving endpoint itself. This does NOT require a redeploy — permissions take effect immediately.
+
+**IMPORTANT:** The permissions API requires the endpoint's **UUID**, not its display name. Using the name returns `'mas-xxx-endpoint' is not a valid Inference Endpoint ID`.
 ```bash
-databricks api patch /api/2.0/permissions/serving-endpoints/<mas-endpoint-name> \
+# Step 1: Get the endpoint UUID
+databricks api get /api/2.0/serving-endpoints --profile=<profile> | \
+  jq '.endpoints[] | select(.name == "mas-<tile-8-chars>-endpoint") | .id'
+
+# Step 2: Grant using UUID
+databricks api patch /api/2.0/permissions/serving-endpoints/<endpoint-uuid> \
   --json '{"access_control_list":[{"service_principal_name":"<app-sp-client-id>","permission_level":"CAN_QUERY"}]}' \
   --profile=<profile>
 ```
@@ -560,6 +582,34 @@ The `core/streaming.py` supports two modes via `mcp_auto_approve` parameter:
 For user-approval mode, the chat endpoint must handle two request types:
 1. New message: `{"message": "...", "history": [...]}`
 2. Approval continuation: `{"approve_mcp": true/false}` (no message field)
+
+### 32. Lakebase CLI uses compound command names
+The Lakebase CLI subcommands use longer compound names: `create-database-instance` (not `create-instance`), `get-database-instance` (not `get-instance`), `generate-database-credential`. Run `databricks database --help` to confirm exact subcommand names.
+
+### 33. Lakebase instance state is AVAILABLE, not RUNNING
+When polling a Lakebase instance after creation, check for state `AVAILABLE` (not `RUNNING`). The instance transitions from `STARTING` → `AVAILABLE`. Polling for `RUNNING` will time out indefinitely while the instance is already functional. `--capacity` is also **required** — valid values: `CU_1`, `CU_2`, `CU_4`, `CU_8`. Use `CU_1` for demos.
+
+### 34. Serverless notebooks can't authenticate to Lakebase
+Serverless notebook runtimes run as ephemeral `spark-*` service accounts (e.g., `spark-3da802a0-03e1-4171-...`). These users have NO Lakebase role and `psycopg2` connections fail with `FATAL: role "spark-..." does not exist`. Even if `generate_database_credential()` produces a valid token, the connection user must be set to a real identity (email), not empty string. **Fix:** Seed Lakebase via local CLI (`databricks psql` or local Python script with `generate-database-credential`) instead of serverless notebooks.
+
+### 35. SP role in Lakebase requires app resource registration + redeploy
+Service principal roles are only created in a Lakebase instance AFTER the SP's app has a database resource registered AND has been redeployed. A brand-new instance has no SP roles. Trying to `GRANT ALL ... TO "<sp-client-id>"` before this returns `role "..." does not exist`. **Correct order:** (1) create instance + database, (2) apply schemas, (3) register database as app resource (`databricks apps update`), (4) redeploy app, (5) THEN grant to the SP.
+
+### 36. `generate-database-credential` CLI requires `request_id`
+The CLI's `generate-database-credential` command requires `request_id` in the JSON body, even though the Python SDK's `w.database.generate_database_credential()` doesn't:
+```bash
+# CORRECT:
+databricks database generate-database-credential --json '{"instance_names": ["<instance>"], "request_id": "seed"}' --profile=<profile>
+
+# WRONG (returns "Field request_id must be defined"):
+databricks database generate-database-credential --json '{"instance_names": ["<instance>"]}' --profile=<profile>
+```
+
+### 37. MAS POST fails with external-mcp-server agents
+Creating a MAS with `external-mcp-server` agents in the initial POST payload returns `Unknown agent type: Empty`. **Fix:** Create the MAS with simpler agents first (genie-space, knowledge-assistant) via POST, then add MCP agents via PATCH. The PATCH must include the `name` field and the **full agents array** (all existing + new agents).
+
+### 38. `agent_actions` status values — use `executed`, not `completed`
+The `core_schema.sql` CHECK constraint on `agent_actions.status` only allows: `pending`, `executed`, `dismissed`, `failed`. Using `completed` (a natural-sounding synonym) causes INSERT to fail. Always verify enum values against the table's CHECK constraints when seeding data.
 
 ## Lakebase MCP Server Deployment
 
@@ -624,8 +674,8 @@ In `agent_bricks/mas_config.json`, add (note: `agent_type` uses kebab-case):
 ```json
 {
   "agent_type": "external-mcp-server",
-  "mcp_connection": {
-    "mcp_connection_id": "<connection-id-from-above>"
+  "external_mcp_server": {
+    "connection_name": "<uc-http-connection-name>"
   },
   "name": "mcp-lakebase-connection",
   "description": "Write operational data to Lakebase PostgreSQL tables. Use for creating work orders, updating statuses, managing alerts, and other CRUD operations."
