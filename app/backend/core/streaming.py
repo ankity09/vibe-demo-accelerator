@@ -310,7 +310,7 @@ async def stream_mas_chat(
                                 tools_called.add(f"mcp:{server_label}:{tool_name}")
                                 if "lakebase" in server_label.lower():
                                     lakebase_called = True
-                                yield f"data: {json.dumps({'type': 'tool_call', 'agent': f'{server_label} \u2192 {tool_name}', 'step': step})}\n\n"
+                                yield f"data: {json.dumps({'type': 'tool_call', 'agent': f'{server_label} -> {tool_name}', 'step': step})}\n\n"
 
                             elif item_type == "function_call_output":
                                 output_text = item.get("output", "")
