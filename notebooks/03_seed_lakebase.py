@@ -1,5 +1,5 @@
 # Databricks notebook source
-# Demo Scaffold — Seed Lakebase with operational data
+# Vibe Demo Accelerator — Seed Lakebase with operational data
 # Run AFTER 02_generate_data.py and after creating the Lakebase instance/schema.
 #
 # ═══════════════════════════════════════════════════════════════════════════

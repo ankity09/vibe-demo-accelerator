@@ -1,4 +1,4 @@
-# Databricks Demo Scaffold
+# Vibe Demo Accelerator
 
 Reusable scaffold for building customer demos on Databricks. Clone this repo, tell vibe what you want, and have a deployed demo in 2-4 hours.
 

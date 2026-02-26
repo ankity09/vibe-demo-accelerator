@@ -1,5 +1,5 @@
 # Databricks notebook source
-# Demo Scaffold — Data Generation
+# Vibe Demo Accelerator — Data Generation
 # Generates Delta Lake tables with domain-authentic data.
 # Hash-based deterministic generation — re-running produces identical data.
 

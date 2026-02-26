@@ -109,7 +109,7 @@ cp "$SCAFFOLD_DIR"/.mcp.json "$PROJECT_DIR"/
 ### Step 0.4: Initialize git
 
 ```bash
-cd "$PROJECT_DIR" && git init && git add -A && git commit -m "Initial scaffold from dbx-demo-scaffold"
+cd "$PROJECT_DIR" && git init && git add -A && git commit -m "Initial scaffold from vibe-demo-accelerator"
 ```
 
 If `git` is not installed or the command fails, skip gracefully and tell the user: "Git init skipped — you can initialize the repo later."

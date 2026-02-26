@@ -1,6 +1,6 @@
 {
-  "name": "dbx-demo-scaffold",
-  "description": "Reusable scaffold for building customer demos on Databricks. Battle-tested FastAPI + vanilla JS + Delta Lake + Lakebase + MAS Agent Bricks.",
+  "name": "vibe-demo-accelerator",
+  "description": "Reusable accelerator for building customer demos on Databricks. Battle-tested FastAPI + vanilla JS + Delta Lake + Lakebase + MAS Agent Bricks.",
   "skills": [
     "skills/databricks-demo"
   ]

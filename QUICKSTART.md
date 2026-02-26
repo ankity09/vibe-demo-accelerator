@@ -32,7 +32,7 @@ databricks current-user me --profile=<name>
 
 1. Clone or copy this scaffold to your demo directory:
    ```bash
-   cp -r dbx-demo-scaffold/ my-customer-demo/
+   cp -r vibe-demo-accelerator/ my-customer-demo/
    cd my-customer-demo/
    ```
 

@@ -1,6 +1,6 @@
-# Databricks Demo Scaffold
+# Vibe Demo Accelerator
 
-Reusable scaffold for building customer demos on Databricks. Clone this repo once, point vibe at it, and have a fully deployed demo in 2-4 hours.
+Reusable accelerator for building customer demos on Databricks. Clone this repo once, point vibe at it, and have a fully deployed demo in 2-4 hours.
 
 **What's inside:** Battle-tested backend wiring (Lakebase auth/retry, MAS SSE streaming, health checks, action cards) extracted from production demos. You get the hard infrastructure for free — vibe generates the customer-specific story, UI, and data model.
 
@@ -103,7 +103,7 @@ ls ~/ai-dev-kit/databricks-mcp-server/run_server.py
 ### 1. Clone the scaffold (one-time)
 
 ```bash
-git clone https://github.com/databricks-field-eng/dbx-demo-scaffold.git ~/dbx-demo-scaffold
+git clone https://github.com/databricks-field-eng/vibe-demo-accelerator.git ~/vibe-demo-accelerator
 ```
 
 Pull updates anytime with `git pull`.
@@ -111,7 +111,7 @@ Pull updates anytime with `git pull`.
 ### 2. Open vibe in the scaffold directory
 
 ```bash
-cd ~/dbx-demo-scaffold
+cd ~/vibe-demo-accelerator
 vibe agent
 ```
 
@@ -203,7 +203,7 @@ AI Dev Kit is the **how you build** (tools + knowledge). This scaffold is the **
 ## Project Structure
 
 ```
-dbx-demo-scaffold/
+vibe-demo-accelerator/
 ├── .claude/commands/
 │   ├── new-demo.md              # /new-demo wizard — 9-phase guided setup
 │   └── deploy-demo.md           # /deploy-demo — quick redeploy after changes
@@ -249,18 +249,18 @@ dbx-demo-scaffold/
 ## Example Prompts
 
 **Predictive Maintenance (dark industrial theme)**
-> Using the scaffold at ~/dbx-demo-scaffold, build me a predictive maintenance demo for Apex Steel. 5 factories, 200+ CNC machines, IoT sensors. I want anomaly detection, work order automation, and spare parts optimization. Dark industrial theme with sidebar nav.
+> Using the accelerator at ~/vibe-demo-accelerator, build me a predictive maintenance demo for Apex Steel. 5 factories, 200+ CNC machines, IoT sensors. I want anomaly detection, work order automation, and spare parts optimization. Dark industrial theme with sidebar nav.
 
 **Launch Operations (space/aerospace theme)**
-> Using the scaffold at ~/dbx-demo-scaffold, build me a launch operations demo for Blue Origin. 3 test facilities, 50+ engine units, sensor telemetry during hot-fire tests. I want test campaign scheduling, anomaly detection, and post-test analysis. Dark theme with a dashboard showing test schedules and engine health.
+> Using the accelerator at ~/vibe-demo-accelerator, build me a launch operations demo for Blue Origin. 3 test facilities, 50+ engine units, sensor telemetry during hot-fire tests. I want test campaign scheduling, anomaly detection, and post-test analysis. Dark theme with a dashboard showing test schedules and engine health.
 
 **Financial Risk (corporate theme)**
-> Using the scaffold at ~/dbx-demo-scaffold, build me a credit risk demo for First National Bank. 50K loan portfolio, real-time risk scoring. I want a corporate blue theme, dashboard-first layout with portfolio breakdown charts, and AI-powered what-if analysis.
+> Using the accelerator at ~/vibe-demo-accelerator, build me a credit risk demo for First National Bank. 50K loan portfolio, real-time risk scoring. I want a corporate blue theme, dashboard-first layout with portfolio breakdown charts, and AI-powered what-if analysis.
 
 ## Updating the Scaffold
 
 ```bash
-cd ~/dbx-demo-scaffold
+cd ~/vibe-demo-accelerator
 git pull
 ```
 

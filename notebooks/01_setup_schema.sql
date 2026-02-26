@@ -1,5 +1,5 @@
 -- Databricks notebook source
--- Demo Scaffold — Schema Setup
+-- Vibe Demo Accelerator — Schema Setup
 -- Run this first to create the catalog schema.
 --
 -- ═══════════════════════════════════════════════════════════════════════════════
