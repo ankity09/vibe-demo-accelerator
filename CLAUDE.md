@@ -611,6 +611,35 @@ Creating a MAS with `external-mcp-server` agents in the initial POST payload ret
 ### 38. `agent_actions` status values — use `executed`, not `completed`
 The `core_schema.sql` CHECK constraint on `agent_actions.status` only allows: `pending`, `executed`, `dismissed`, `failed`. Using `completed` (a natural-sounding synonym) causes INSERT to fail. Always verify enum values against the table's CHECK constraints when seeding data.
 
+### 39. f-string backslash syntax crashes Python 3.11
+Python 3.11 (Databricks Apps runtime) does NOT allow `\n`, `\\n`, `\'` inside the `{...}` expression part of f-strings. The app crashes with `SyntaxError` visible only in `/logz`. **Fix:** Extract the inner string to a variable first:
+```python
+# WRONG: yield f"data: {json.dumps({'text': f'Summary\\n{ctx}'})}\n\n"
+_text = "Summary\n" + ctx
+yield f"data: {json.dumps({'text': _text})}\n\n"
+```
+
+### 40. Databricks SQL INTERVAL syntax requires quoted numbers
+Use `INTERVAL '7' DAY` (quoted number), not `INTERVAL 7 DAY`. The unquoted form may silently return wrong results. **Note:** PostgreSQL (Lakebase) uses different syntax: `INTERVAL '7 days'` (number + unit together inside quotes). Don't mix them up.
+
+### 41. asyncio.gather without return_exceptions kills all queries
+`asyncio.gather()` without `return_exceptions=True` propagates the first exception, causing all parallel queries to fail. If one Lakebase query fails, the entire gather fails — returning zeros for Delta Lake queries that would have succeeded. **Fix:** Always use `return_exceptions=True` when mixing Delta Lake and Lakebase queries, and check each result with `isinstance(result, Exception)`.
+
+### 42. Lakebase instance workspace limit (~10)
+FEVM workspaces limit ~10 Lakebase instances. **Workaround:** Reuse an existing instance by creating a new database: `databricks psql <instance> -- -c "CREATE DATABASE <new_db>;"`. Update all config files that reference the instance name.
+
+### 43. App crash logs only visible via browser /logz
+`databricks apps deploy` gives no useful error on crash. Logs are only at `https://<app-url>/logz` (browser OAuth required). **Workaround:** Use `python3 -c "import py_compile; py_compile.compile('backend/main.py', doraise=True)"` or Chrome DevTools MCP to view `/logz`.
+
+### 44. UC HTTP connection requires token_endpoint field
+Without `token_endpoint` in the connection options, the UC API defaults to bearer token auth and rejects OAuth M2M. **Fix:** Include `"token_endpoint": "https://<workspace-url>/oidc/v1/token"` and `"is_mcp_connection": "true"` in the connection options.
+
+### 45. `databricks apps deploy` clears resources array
+Deploying resets `resources: []`. Any resources registered before the deploy are lost. **Fix:** Always use the 3-step cycle: (1) deploy code, (2) register resources via `databricks apps update`, (3) redeploy to inject `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`. Verify with `databricks apps get ... | jq '.resources'`.
+
+### 46. asyncio.gather resilience in ALL Lakebase-touching endpoints
+Health check passes (`SELECT 1`) but individual endpoints fail because they query Lakebase tables without error handling. **Root causes:** `/api/agent-overview` has 7 queries without `return_exceptions=True`; `/api/architecture` inner gather mixes Delta+Lakebase without it; `/api/exceptions` has no try/except; dashboard `Promise.all` lacks `.catch()`. **Fix:** Every `asyncio.gather` with `run_pg_query` needs `return_exceptions=True`. Every frontend `Promise.all` needs `.catch()` on each call.
+
 ## Lakebase MCP Server Deployment
 
 The scaffold includes a **shared** Lakebase MCP server at `lakebase-mcp-server/`. Deploy it once and reuse across all demos via URL-based database routing (`/db/{database}/mcp/`).

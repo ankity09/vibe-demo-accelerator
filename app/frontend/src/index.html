@@ -339,6 +339,52 @@ tr:hover td { background:#f8fafc; }
 @keyframes ai-spin { to { transform:rotate(360deg); } }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   DASHBOARD — Greeting, KPIs, Exceptions, Briefing, Activity
+   ═══════════════════════════════════════════════════════════════════════════ */
+.dash-greeting { background:linear-gradient(135deg,var(--primary) 0%,var(--primary-light) 60%,var(--accent) 100%); color:#fff; border-radius:var(--radius); padding:20px 28px; margin-bottom:20px; }
+.dash-greeting h2 { font-size:20px; font-weight:700; margin-bottom:4px; }
+.dash-greeting p { font-size:13px; opacity:.85; line-height:1.5; }
+
+/* ─── Exception Cards ────────────────────────────────────────────── */
+.exc-card { background:#fff; border-left:4px solid var(--border); border-radius:var(--radius); padding:14px 18px; margin-bottom:10px; box-shadow:var(--shadow); transition:all .15s; }
+.exc-card:hover { box-shadow:var(--shadow-lg); }
+.exc-card.exc-critical { border-left-color:var(--red); }
+.exc-card.exc-high { border-left-color:#f97316; }
+.exc-card.exc-medium { border-left-color:var(--accent); }
+.exc-card.exc-low { border-left-color:var(--green); }
+.exc-card .exc-top { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+.exc-card .exc-title { font-size:13px; font-weight:600; flex:1; }
+.exc-card .exc-desc { font-size:12px; color:var(--text-muted); line-height:1.5; margin-bottom:8px; }
+.exc-card .exc-actions { display:flex; gap:6px; }
+.exc-card .exc-meta { font-size:11px; color:var(--text-muted); margin-top:4px; }
+
+/* ─── Collapsible Sections ───────────────────────────────────────── */
+.collapsible-section .cs-header { display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 0; user-select:none; }
+.collapsible-section .cs-header h3 { margin:0; font-size:14px; font-weight:600; color:var(--primary); }
+.collapsible-section .cs-chevron { font-size:12px; color:var(--text-muted); transition:transform .2s; }
+.collapsible-section.collapsed .cs-chevron { transform:rotate(-90deg); }
+.collapsible-section .cs-body { overflow:hidden; transition:max-height .3s ease; }
+.collapsible-section.collapsed .cs-body { max-height:0 !important; }
+
+/* ─── Sparkline Canvas ───────────────────────────────────────────── */
+.kpi-sparkline { margin-top:6px; }
+
+/* ─── Reasoning Chain (workflow modal enhancement) ───────────────── */
+.rc-chain { display:flex; flex-direction:column; gap:0; margin-bottom:16px; }
+.rc-step { display:flex; gap:10px; position:relative; padding:8px 0; }
+.rc-step::before { content:''; position:absolute; left:11px; top:28px; bottom:-8px; width:2px; background:var(--border); }
+.rc-step:last-child::before { display:none; }
+.rc-step .rc-icon { width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; flex-shrink:0; z-index:1; }
+.rc-step .rc-icon.completed { background:var(--green-bg); color:var(--green); }
+.rc-step .rc-icon.active { background:var(--blue-bg); color:var(--blue); animation:pulse 1.2s ease-in-out infinite; }
+.rc-step .rc-icon.pending { background:var(--steel-bg); color:var(--steel); }
+.rc-step .rc-body { flex:1; min-width:0; }
+.rc-step .rc-label { font-size:12px; font-weight:600; color:var(--text); }
+.rc-step .rc-output { font-size:11px; color:var(--text-muted); line-height:1.4; margin-top:2px; cursor:pointer; }
+.rc-step .rc-output.collapsed { max-height:28px; overflow:hidden; }
+.rc-step .rc-output.expanded { max-height:none; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
    ARCHITECTURE — INTERACTIVE PANZOOM DAG
    ═══════════════════════════════════════════════════════════════════════════ */
 .arch-banner { background:linear-gradient(135deg,var(--primary) 0%,var(--primary-light) 60%,var(--accent) 100%); color:#fff; border-radius:var(--radius); padding:14px 28px; margin-bottom:12px; text-align:center; }
@@ -447,7 +493,8 @@ tr:hover td { background:#f8fafc; }
   </div>
   <nav>
     <!-- TODO(vibe): Add domain pages (dashboard, inventory, etc.) as the user requests -->
-    <a href="#" data-page="chat" class="active"><span class="icon"><i data-lucide="message-circle" style="width:16px;height:16px"></i></span> AI Chat</a>
+    <a href="#" data-page="dashboard" class="active"><span class="icon"><i data-lucide="layout-dashboard" style="width:16px;height:16px"></i></span> Dashboard</a>
+    <a href="#" data-page="chat"><span class="icon"><i data-lucide="message-circle" style="width:16px;height:16px"></i></span> AI Chat</a>
     <a href="#" data-page="agent" id="nav-agent"><span class="icon"><i data-lucide="bot" style="width:16px;height:16px"></i></span> Agent Workflows <span class="nav-badge" id="agent-nav-badge" style="display:none">0</span></a>
     <a href="#" data-page="arch"><span class="icon"><i data-lucide="layers" style="width:16px;height:16px"></i></span> Architecture</a>
   </nav>
@@ -463,8 +510,46 @@ tr:hover td { background:#f8fafc; }
   </div>
   <div id="content">
 
+    <!-- ═══ Dashboard Page ═══ -->
+    <div id="page-dashboard" class="page active">
+      <!-- Greeting banner -->
+      <div id="dash-greeting" class="dash-greeting">
+        <h2 id="dash-greeting-text">Good morning</h2>
+        <p id="dash-greeting-sub">Loading operational summary...</p>
+      </div>
+      <!-- KPI strip -->
+      <div class="kpi-row" id="dash-kpis"></div>
+      <!-- Two-column layout: exceptions + recent activity -->
+      <div class="grid-2">
+        <div class="card collapsible-section" id="dash-exceptions-section">
+          <div class="cs-header" onclick="toggleSection('dash-exceptions-section')">
+            <span class="cs-chevron">&#x25BC;</span>
+            <h3>Open Alerts &amp; Exceptions</h3>
+            <span class="badge badge-open" id="dash-exc-count" style="margin-left:auto">0</span>
+          </div>
+          <div class="cs-body" id="dash-exceptions" style="max-height:600px"></div>
+        </div>
+        <div class="card collapsible-section" id="dash-activity-section">
+          <div class="cs-header" onclick="toggleSection('dash-activity-section')">
+            <span class="cs-chevron">&#x25BC;</span>
+            <h3>Recent Agent Activity</h3>
+          </div>
+          <div class="cs-body" id="dash-activity" style="max-height:600px"></div>
+        </div>
+      </div>
+      <!-- Briefing section (collapsible) -->
+      <div class="card collapsible-section" id="dash-briefing-section">
+        <div class="cs-header" onclick="toggleSection('dash-briefing-section')">
+          <span class="cs-chevron">&#x25BC;</span>
+          <h3>AI Briefing</h3>
+          <button class="btn btn-sm btn-blue" style="margin-left:auto" onclick="event.stopPropagation();loadBriefingStream()">Refresh</button>
+        </div>
+        <div class="cs-body" id="dash-briefing" style="max-height:600px;font-size:13px;line-height:1.6;color:var(--text)"></div>
+      </div>
+    </div>
+
     <!-- ═══ Starter Page: AI Chat ═══ -->
-    <div id="page-chat" class="page active" style="display:flex;height:calc(100vh - 60px);flex-direction:column;">
+    <div id="page-chat" class="page" style="display:none;height:calc(100vh - 60px);flex-direction:column;">
       <div class="suggested-prompts" id="chat-prompts"></div>
       <div id="chat-messages" style="flex:1;overflow-y:auto;"></div>
       <div class="chat-toolbar" id="chat-toolbar">
@@ -682,14 +767,15 @@ function showFlash(msg, isError=false) {
 
 // ─── Navigation ──────────────────────────────────────────────────────────
 // TODO(vibe): Add domain pages to PAGES and PAGE_TITLES when you create them
-const PAGES = ['chat','agent','arch'];
+const PAGES = ['dashboard','chat','agent','arch'];
 const PAGE_TITLES = {
+  dashboard: 'Dashboard',
   chat:  'AI Chat',
   agent: 'Agent Workflows',
   arch:  'Architecture',
 };
 
-let currentPage = 'chat';
+let currentPage = 'dashboard';
 function navigate(page) {
   currentPage = page;
   PAGES.forEach(p => {
@@ -707,8 +793,8 @@ function navigate(page) {
   document.querySelectorAll('#sidebar nav a').forEach(a => a.classList.toggle('active', a.dataset.page === page));
   closeDetail();
   // TODO(vibe): Add page loader calls here when you create domain pages
-  // Example: if (page === 'dashboard') loadDashboard();
-  if (page === 'chat') loadChat();
+  if (page === 'dashboard') loadDashboard();
+  else if (page === 'chat') loadChat();
   else if (page === 'agent') loadAgentPage();
   else if (page === 'arch') loadArchitecture();
 }
@@ -1543,6 +1629,9 @@ async function openWorkflowModal(id) {
     const summary = wf.enriched_summary || wf.summary || '\u2014';
     const TYPE_LABELS = {};
 
+    // Reasoning chain from enriched workflow
+    const chainHtml = renderReasoningChain(wf.reasoning_chain);
+
     let left = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
         <div class="dp-field"><label>Type</label><div class="val"><span class="badge badge-${wf.workflow_type}">${TYPE_LABELS[wf.workflow_type]||wf.workflow_type}</span></div></div>
@@ -1551,6 +1640,7 @@ async function openWorkflowModal(id) {
         <div class="dp-field"><label>Entity</label><div class="val">${wf.entity_type||'\u2014'} ${wf.entity_id||''}</div></div>
       </div>
       <div class="dp-field"><label>Summary</label><div class="val" style="font-size:13px;line-height:1.6">${escHtml(summary)}</div></div>
+      ${chainHtml}
       <div style="margin-top:16px;font-size:11px;color:var(--text-muted)">Created: ${wf.created_at||'\u2014'}${wf.completed_at ? ' &middot; Completed: '+wf.completed_at : ''}</div>
       <div class="ai-panel" id="ai-panel" style="display:none">
         <div class="ai-panel-label" id="ai-panel-label">AI Analysis</div>
@@ -2219,10 +2309,265 @@ function hideFlowDetail() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   DASHBOARD — Greeting, KPIs, Exceptions, Briefing, Activity
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+// ─── Collapsible Section Toggle ──────────────────────────────────────────
+function toggleSection(sectionId) {
+  const section = document.getElementById(sectionId);
+  if (section) section.classList.toggle('collapsed');
+}
+
+// ─── Sparkline Utility ───────────────────────────────────────────────────
+function drawSparkline(canvas, data, color) {
+  if (!canvas || !data || data.length < 2) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width = canvas.offsetWidth || 120;
+  const h = canvas.height = canvas.offsetHeight || 28;
+  ctx.clearRect(0, 0, w, h);
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  const step = w / (data.length - 1);
+  ctx.beginPath();
+  ctx.strokeStyle = color || 'var(--accent)';
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = 'round';
+  data.forEach((v, i) => {
+    const x = i * step;
+    const y = h - ((v - min) / range) * (h - 4) - 2;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+}
+
+// ─── Dashboard Loader ────────────────────────────────────────────────────
+async function loadDashboard() {
+  // Greeting
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  document.getElementById('dash-greeting-text').textContent = greeting;
+  document.getElementById('dash-greeting-sub').textContent = 'Loading operational summary...';
+
+  showSkeleton('dash-kpis', 2);
+  showSkeleton('dash-exceptions', 3);
+  showSkeleton('dash-activity', 3);
+  document.getElementById('dash-briefing').innerHTML = '<div class="loading">Loading briefing...</div>';
+
+  try {
+    // Gotcha #46: Every fetchApi in Promise.all needs .catch() so one failure doesn't break the dashboard
+    const [overview, exceptions] = await Promise.all([
+      fetchApi('/api/agent-overview').catch(() => ({kpis: {}, workflows: [], agent_actions_recent: []})),
+      fetchApi('/api/exceptions?status=open&limit=20').catch(() => []),
+    ]);
+
+    const k = overview.kpis || {};
+
+    // KPIs
+    document.getElementById('dash-kpis').innerHTML = `
+      <div class="kpi-card red">
+        <div class="kpi-label">Open Exceptions</div>
+        <div class="kpi-value">${fmt(k.open_exceptions || 0)}</div>
+        <div class="kpi-sub">Needs attention</div>
+        <canvas class="kpi-sparkline" id="spark-exc" style="width:100%;height:28px"></canvas>
+      </div>
+      <div class="kpi-card accent">
+        <div class="kpi-label">Pending Approval</div>
+        <div class="kpi-value">${fmt(k.pending_approval || 0)}</div>
+        <div class="kpi-sub">Agent workflows</div>
+      </div>
+      <div class="kpi-card green">
+        <div class="kpi-label">Completed (7d)</div>
+        <div class="kpi-value">${fmt(k.completed_7d || 0)}</div>
+        <div class="kpi-sub">Approved workflows</div>
+      </div>
+      <div class="kpi-card blue">
+        <div class="kpi-label">Agent Actions (24h)</div>
+        <div class="kpi-value">${fmt(k.agent_actions_24h || 0)}</div>
+        <div class="kpi-sub">Autonomous actions</div>
+      </div>
+    `;
+    animateKPIs('dash-kpis');
+    updateAgentBadge(k.pending_approval || 0);
+
+    // Sparkline placeholder data (replace with real trend data if available)
+    setTimeout(() => {
+      const sparkCanvas = document.getElementById('spark-exc');
+      if (sparkCanvas) {
+        // TODO(vibe): Replace with real trend data from API
+        const trend = Array.from({length: 7}, () => Math.floor(Math.random() * 10) + (k.open_exceptions || 3));
+        drawSparkline(sparkCanvas, trend, '#ef4444');
+      }
+    }, 200);
+
+    // Exceptions
+    renderDashExceptions(exceptions);
+
+    // Recent activity
+    const actions = overview.agent_actions_recent || [];
+    renderDashActivity(actions);
+
+    // Greeting update
+    const excCount = k.open_exceptions || 0;
+    const pendingWf = k.pending_approval || 0;
+    const parts = [];
+    if (excCount > 0) parts.push(`${excCount} open exception${excCount > 1 ? 's' : ''}`);
+    if (pendingWf > 0) parts.push(`${pendingWf} pending workflow${pendingWf > 1 ? 's' : ''}`);
+    document.getElementById('dash-greeting-sub').textContent = parts.length
+      ? `You have ${parts.join(' and ')} needing attention.`
+      : 'All systems operational — no items need attention.';
+
+  } catch(e) {
+    console.error('Dashboard load error:', e);
+    document.getElementById('dash-kpis').innerHTML = '<div class="loading">Failed to load dashboard data.</div>';
+  }
+
+  // Load briefing (async, non-blocking)
+  loadBriefing();
+}
+
+// ─── Exception Cards ─────────────────────────────────────────────────────
+function renderDashExceptions(exceptions) {
+  const container = document.getElementById('dash-exceptions');
+  const countBadge = document.getElementById('dash-exc-count');
+  if (countBadge) countBadge.textContent = exceptions.length;
+
+  if (!exceptions.length) {
+    container.innerHTML = '<div class="loading" style="padding:16px">No open exceptions — all clear.</div>';
+    return;
+  }
+
+  container.innerHTML = exceptions.map(exc => {
+    const truncDesc = (exc.description || '').length > 120 ? exc.description.substring(0, 120) + '...' : exc.description;
+    return `
+      <div class="exc-card exc-${exc.severity || 'medium'}">
+        <div class="exc-top">
+          <span class="exc-title">${escHtml(exc.exception_type || 'Exception')}</span>
+          ${severityBadge(exc.severity || 'medium')}
+          ${statusBadge(exc.status || 'open')}
+        </div>
+        <div class="exc-desc">${escHtml(truncDesc || '')}</div>
+        <div class="exc-meta">${escHtml(exc.entity_type || '')} ${escHtml(exc.entity_id || '')} &middot; ${timeAgo(exc.created_at)}</div>
+        <div class="exc-actions">
+          <button class="btn btn-sm btn-primary" onclick="handleException(${exc.exception_id},'acknowledged')">Acknowledge</button>
+          <button class="btn btn-sm btn-green" onclick="promptResolveException(${exc.exception_id})">Resolve</button>
+          <button class="btn btn-sm btn-steel" onclick="handleException(${exc.exception_id},'escalated')">Escalate</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function handleException(id, status, resolution) {
+  try {
+    const body = {status};
+    if (resolution) body.resolution = resolution;
+    await patchApi('/api/exceptions/' + id, body);
+    showFlash(`Exception ${status}`);
+    if (currentPage === 'dashboard') loadDashboard();
+  } catch(e) { showFlash('Failed to update exception', true); }
+}
+
+function promptResolveException(id) {
+  const resolution = prompt('Enter resolution notes:');
+  if (resolution !== null) handleException(id, 'resolved', resolution);
+}
+
+// ─── Recent Activity ─────────────────────────────────────────────────────
+function renderDashActivity(actions) {
+  const container = document.getElementById('dash-activity');
+  if (!actions.length) {
+    container.innerHTML = '<div class="loading" style="padding:16px">No recent agent activity.</div>';
+    return;
+  }
+  container.innerHTML = actions.slice(0, 10).map(a => `
+    <div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <strong>${escHtml(a.action_type || 'Action')}</strong>
+        <span>${timeAgo(a.created_at)}</span>
+      </div>
+      <div style="color:var(--text-muted);margin-top:2px">${escHtml((a.description || '').substring(0, 100))}</div>
+    </div>`).join('');
+}
+
+// ─── Briefing ────────────────────────────────────────────────────────────
+async function loadBriefing() {
+  const container = document.getElementById('dash-briefing');
+  try {
+    const data = await fetchApi('/api/briefing');
+    container.innerHTML = formatMd(data.briefing || 'No briefing available.');
+  } catch(e) {
+    container.innerHTML = '<div class="loading">Briefing unavailable.</div>';
+  }
+}
+
+async function loadBriefingStream() {
+  const container = document.getElementById('dash-briefing');
+  container.innerHTML = '<div class="loading">Generating briefing...</div>';
+  try {
+    const resp = await fetch('/api/briefing/stream');
+    if (!resp.ok) throw new Error('Stream failed');
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '', text = '';
+    container.innerHTML = '';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6);
+        if (raw === '[DONE]') continue;
+        try {
+          const evt = JSON.parse(raw);
+          if (evt.type === 'delta') {
+            text += evt.text;
+            container.innerHTML = formatMd(text);
+          }
+        } catch(_) {}
+      }
+    }
+    if (!text) container.innerHTML = '<div class="loading">No briefing content.</div>';
+  } catch(e) {
+    container.innerHTML = '<div class="loading">Streaming briefing failed.</div>';
+    loadBriefing();  // fallback to non-streaming
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WORKFLOW ENRICHMENT — Reasoning chain + enriched summary in modal
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function renderReasoningChain(chain) {
+  if (!chain || !Array.isArray(chain) || !chain.length) return '';
+  const TOOL_ICONS = {
+    monitor: '\u{1F50D}', analyze: '\u{1F4CA}', action: '\u26A1',
+    query: '\u{1F4C4}', write: '\u270F\uFE0F', approve: '\u2705',
+    // TODO(vibe): Add your tool icons here
+  };
+  const steps = chain.map((s, i) => {
+    const icon = TOOL_ICONS[s.tool] || '\u25CF';
+    const status = s.status || 'completed';
+    const output = s.output || '';
+    return `
+      <div class="rc-step">
+        <div class="rc-icon ${status}">${status === 'completed' ? '\u2714' : status === 'active' ? '\u25B6' : '\u25CB'}</div>
+        <div class="rc-body">
+          <div class="rc-label">${icon} ${escHtml(s.label || 'Step ' + (i+1))}</div>
+          ${output ? `<div class="rc-output collapsed" onclick="this.classList.toggle('collapsed');this.classList.toggle('expanded')">${escHtml(output)}</div>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+  return `<div style="margin-top:16px"><label style="font-size:10px;text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;font-weight:700">Reasoning Chain</label><div class="rc-chain">${steps}</div></div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    INIT
    ═══════════════════════════════════════════════════════════════════════════ */
 try { lucide.createIcons(); } catch(e) { console.warn('Lucide not loaded:', e); }
-loadChat();
+loadDashboard();
 </script>
 </body>
 </html>

@@ -886,15 +886,53 @@ The MCP server is named `lakebase-mcp-server` (NOT per-demo). It supports multi-
 **Sequential after parallel (requires Genie Space ID + MCP connection ID):**
 1. Create MAS with all sub-agents (include Genie Space + Lakebase MCP connection)
 
-Report: "Phase C complete — Genie Space, MAS, and Lakebase MCP server deployed."
+**CRITICAL — Write agent IDs back to config files (required for Architecture page):**
+
+After creating the Genie Space and MAS, you MUST write the IDs back so the app can discover its agents:
+
+2. **Extract IDs:**
+   - `GENIE_SPACE_ID` — from the Genie Space creation response (the space ID)
+   - `MAS_TILE_ID` — the first 8 characters of the MAS tile_id (find via: `databricks serving-endpoints get mas-<tile>-endpoint --profile=<profile>`, look at `tile_endpoint_metadata.tile_id`, take first 8 chars)
+   - `KA_TILE_ID` — if a Knowledge Assistant was created, extract its tile ID
+
+3. **Update `app/app.yaml`** — replace the TODO placeholders with real IDs:
+   ```bash
+   # Update MAS_TILE_ID
+   sed -i '' 's/name: MAS_TILE_ID\n    value: "TODO"/name: MAS_TILE_ID\n    value: "<actual_mas_tile_id>"/' PROJECT_DIR/app/app.yaml
+   # Update GENIE_SPACE_ID
+   sed -i '' 's/name: GENIE_SPACE_ID\n    value: "TODO"/name: GENIE_SPACE_ID\n    value: "<actual_genie_space_id>"/' PROJECT_DIR/app/app.yaml
+   # Update KA_TILE_ID (if applicable)
+   sed -i '' 's/name: KA_TILE_ID\n    value: "TODO"/name: KA_TILE_ID\n    value: "<actual_ka_tile_id>"/' PROJECT_DIR/app/app.yaml
+   ```
+   Alternatively, use Python/yq to update the YAML in-place. The key env var names are `MAS_TILE_ID`, `GENIE_SPACE_ID`, and `KA_TILE_ID`.
+
+4. **Update `demo-config.yaml`** — add the IDs to the `ai_layer` section:
+   ```yaml
+   ai_layer:
+     genie_space_id: "<actual_genie_space_id>"
+     mas_tile_id: "<actual_mas_tile_id>"
+     ka_tile_id: "<actual_ka_tile_id>"   # if applicable
+   ```
+   This ensures `_agents_from_demo_config()` can resolve agents even if the live MAS API call fails.
+
+5. **Update `app/app.yaml` resources** — replace TODO in the MAS endpoint resource:
+   Replace `"mas-TODO-endpoint"` with `"mas-<actual_mas_tile_id>-endpoint"` in the resources section.
+
+Report: "Phase C complete — Genie Space, MAS, and Lakebase MCP server deployed. Agent IDs written to app.yaml and demo-config.yaml."
 
 ### Step 8D: App Deploy
 
 Tell the user: "Deploying Phase D — deploying the app and registering resources."
 
 Sequential steps:
-1. Sync app code from `PROJECT_DIR/app` to workspace
-2. Deploy app: `databricks apps deploy <name> --source-code-path <path> --profile=<profile>`
+1. **Copy config files into app/ for deployment** (CRITICAL — only app/ is synced to workspace):
+   ```bash
+   cp PROJECT_DIR/demo-config.yaml PROJECT_DIR/app/demo-config.yaml 2>/dev/null || true
+   cp PROJECT_DIR/agent_bricks/mas_config.json PROJECT_DIR/app/agent_bricks/mas_config.json 2>/dev/null || true
+   ```
+   This ensures the app can discover its agents via the fallback paths when the live MAS API is unavailable.
+2. Sync app code from `PROJECT_DIR/app` to workspace
+3. Deploy app: `databricks apps deploy <name> --source-code-path <path> --profile=<profile>`
 3. **Register resources via API** (CRITICAL — app.yaml alone does NOT register them):
 ```bash
 databricks apps update <app-name> --json '{

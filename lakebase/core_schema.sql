@@ -63,6 +63,31 @@ CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status);
 CREATE INDEX IF NOT EXISTS idx_workflows_type ON workflows(workflow_type);
 
 -- ============================================================
+-- Table: exceptions
+-- Generic exception/alert management — works for any domain
+-- (supply chain alerts, maintenance issues, compliance flags, etc.)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS exceptions (
+    exception_id    SERIAL PRIMARY KEY,
+    entity_type     VARCHAR(50) NOT NULL,
+    entity_id       VARCHAR(50) NOT NULL,
+    exception_type  VARCHAR(50) NOT NULL,
+    severity        VARCHAR(20) NOT NULL DEFAULT 'medium'
+                    CHECK (severity IN ('low', 'medium', 'high', 'critical')),
+    description     TEXT NOT NULL,
+    assigned_to     VARCHAR(100),
+    status          VARCHAR(20) NOT NULL DEFAULT 'open'
+                    CHECK (status IN ('open', 'acknowledged', 'resolved', 'escalated', 'cancelled')),
+    resolution      TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    resolved_at     TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_exceptions_status ON exceptions(status);
+CREATE INDEX IF NOT EXISTS idx_exceptions_severity ON exceptions(severity);
+CREATE INDEX IF NOT EXISTS idx_exceptions_entity ON exceptions(entity_type, entity_id);
+
+-- ============================================================
 -- Table: chat_sessions
 -- Persistent chat sessions for the AI advisor
 -- ============================================================
@@ -97,3 +122,13 @@ CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id
 -- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "<APP_SP_CLIENT_ID>";
 -- ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "<APP_SP_CLIENT_ID>";
 -- ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "<APP_SP_CLIENT_ID>";
+
+-- ============================================================
+-- Idempotent ALTERs — extend workflows table for enrichment
+-- ============================================================
+DO $$ BEGIN
+  ALTER TABLE workflows ADD COLUMN IF NOT EXISTS result_exception_id INTEGER;
+  ALTER TABLE workflows ADD COLUMN IF NOT EXISTS headline VARCHAR(200);
+  ALTER TABLE workflows ADD COLUMN IF NOT EXISTS enriched_summary TEXT;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;

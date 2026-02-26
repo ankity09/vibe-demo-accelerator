@@ -353,3 +353,221 @@ databricks api patch /api/2.0/multi-agent-supervisors/<full-uuid> --json @config
 
 ### 35. `agent_actions` status values: use `executed`, not `completed`
 The `agent_actions` table in `core_schema.sql` has a CHECK constraint allowing only: `pending`, `executed`, `dismissed`, `failed`. Code generation often produces `"completed"` which violates the constraint. Always use `"executed"` for successful agent actions.
+
+---
+
+### 39. f-string backslash syntax crashes Python 3.11 (Databricks Apps runtime)
+
+**Symptom:** App deploys but immediately crashes with `SyntaxError: f-string expression part cannot include a backslash`. The error only appears in `/logz` (browser-only, requires OAuth). The CLI deploy output just says "app crashed unexpectedly".
+
+**Cause:** Python 3.11 (used by Databricks Apps runtime) does NOT allow backslash escape sequences (`\n`, `\\n`, `\'`) inside the `{}` expression portion of an f-string. This restriction was lifted in Python 3.12, but Databricks Apps still runs 3.11.
+
+**Example of broken code:**
+```python
+# WRONG — crashes on Python 3.11
+yield f"data: {json.dumps({'type': 'delta', 'text': f'**Summary**\\n{context}'})}\n\n"
+```
+
+**Fix:** Extract the inner string into a variable first:
+```python
+# CORRECT — works on Python 3.11+
+_text = "**Summary**\n" + context
+yield f"data: {json.dumps({'type': 'delta', 'text': _text})}\n\n"
+```
+
+**Prevention:** When generating code, never use `\n`, `\\n`, `\'`, or any backslash inside `{...}` in an f-string. Always extract to a variable first. This applies to ALL Python code that runs on Databricks Apps.
+
+---
+
+### 40. Databricks SQL INTERVAL syntax requires quoted numbers
+
+**Symptom:** Delta Lake queries with date/time intervals return empty results or errors.
+
+**Cause:** Databricks SQL requires the number in INTERVAL expressions to be quoted: `INTERVAL '7' DAY`, not `INTERVAL 7 DAY`. The unquoted form may silently return wrong results or fail depending on context.
+
+**Example:**
+```python
+# WRONG — may fail or return wrong results
+f"WHERE reading_timestamp >= CURRENT_TIMESTAMP() - INTERVAL 7 DAY"
+
+# CORRECT
+f"WHERE reading_timestamp >= CURRENT_TIMESTAMP() - INTERVAL '7' DAY"
+```
+
+**Note:** PostgreSQL (Lakebase) uses a different syntax: `INTERVAL '7 days'` (number and unit together inside quotes). Don't mix them up:
+```python
+# Delta Lake (Databricks SQL):
+f"INTERVAL '7' DAY"
+
+# Lakebase (PostgreSQL):
+"INTERVAL '7 days'"
+```
+
+---
+
+### 41. asyncio.gather without return_exceptions kills all queries on one failure
+
+**Symptom:** Dashboard metrics endpoint returns all zeros even though Delta Lake tables have data. Only one of the parallel queries (e.g., the Lakebase query) is failing, but it takes down all 6 queries.
+
+**Cause:** `asyncio.gather()` without `return_exceptions=True` propagates the first exception immediately, causing the entire gather to fail. If one query (e.g., Lakebase `run_pg_query`) fails, the exception handler catches it and returns all zeros — even for queries that would have succeeded.
+
+**Fix:** Always use `return_exceptions=True` when mixing Delta Lake and Lakebase queries in `asyncio.gather`:
+```python
+results = await asyncio.gather(
+    asyncio.to_thread(run_query, "SELECT ..."),      # Delta Lake
+    asyncio.to_thread(run_pg_query, "SELECT ..."),   # Lakebase — may fail independently
+    asyncio.to_thread(run_query, "SELECT ..."),      # Delta Lake
+    return_exceptions=True,  # <-- CRITICAL
+)
+
+def _val(result):
+    if isinstance(result, Exception):
+        log.warning("Sub-query failed: %s", result)
+        return 0
+    rows = result or [{}]
+    v = rows[0].get("val") if rows else None
+    return v if v is not None else 0
+```
+
+**When to use this:** Any endpoint that runs multiple parallel queries where you want partial results rather than all-or-nothing failure. Dashboard metrics, briefing context, and field detail endpoints are prime candidates.
+
+---
+
+### 42. Lakebase instance workspace limit (~10 instances)
+
+**Symptom:** `databricks database create-database-instance` fails with a "workspace limit" error.
+
+**Cause:** FEVM (serverless sandbox) workspaces have a limit of approximately 10 Lakebase instances. Once hit, you must reuse an existing instance or delete unused ones.
+
+**Workaround:** Reuse an existing instance by creating a new database within it:
+```bash
+# List existing instances
+databricks database list-database-instances --profile=<profile>
+
+# Create a new database on an existing instance
+databricks psql <existing-instance> --profile=<profile> -- -c "CREATE DATABASE <new_db>;"
+
+# Then apply schemas to the new database
+databricks psql <existing-instance> --profile=<profile> -- -d <new_db> -f lakebase/core_schema.sql
+```
+
+**Important:** When reusing an instance, update ALL config files that reference the instance name:
+- `app/app.yaml` (resources section)
+- `CLAUDE.md` (Project Identity)
+- `notebooks/03_seed_lakebase.py` (instance name constant)
+- `demo-config.yaml` (if applicable)
+
+---
+
+### 43. App crash logs only visible via browser /logz endpoint
+
+**Symptom:** `databricks apps deploy` returns "app crashed unexpectedly. Please check /logz for more details" but there's no CLI command to view the logs.
+
+**Cause:** Databricks Apps does not expose application logs via the CLI or REST API. The only way to see the actual Python traceback is:
+1. Navigate to `https://<app-url>/logz` in a browser (requires OAuth login)
+2. Or use Chrome DevTools MCP to navigate to the logz endpoint
+
+**Workaround for debugging:** If you can't access `/logz`:
+1. Test the import chain locally: `python3 -c "import ast; ast.parse(open('backend/main.py').read()); print('OK')"`
+2. Check for Python 3.11 compatibility issues (f-string backslashes, match/case, etc.)
+3. Compile-check all core modules: `python3 -c "import py_compile; py_compile.compile('backend/main.py', doraise=True)"`
+4. Compare with a working app's structure on the same workspace
+
+---
+
+### 44. UC HTTP connection creation requires token_endpoint field
+
+**Symptom:** `databricks api post /api/2.0/unity-catalog/connections` with OAuth M2M fields returns "must include bearer_token" error.
+
+**Cause:** The UC connections API requires the `token_endpoint` field to be explicitly set for OAuth M2M connections. Without it, the API defaults to bearer token auth.
+
+**Fix:** Include `token_endpoint` pointing to the workspace OIDC endpoint:
+```json
+{
+  "name": "my-mcp-connection",
+  "connection_type": "HTTP",
+  "options": {
+    "host": "https://my-app.aws.databricksapps.com",
+    "port": "443",
+    "base_path": "/db/my_database/mcp/",
+    "client_id": "<sp-client-id>",
+    "client_secret": "<sp-secret>",
+    "oauth_scope": "all-apis",
+    "token_endpoint": "https://<workspace-url>/oidc/v1/token",
+    "is_mcp_connection": "true"
+  }
+}
+```
+
+The `token_endpoint` format is always: `https://<workspace-url>/oidc/v1/token`
+
+---
+
+### 45. `databricks apps deploy` clears the resources array
+
+**Symptom:** After deploying the app, `PGHOST` is not set and Lakebase health check fails — even though you previously registered resources via `databricks apps update`. Checking `databricks apps get` shows `resources: []`.
+
+**Cause:** `databricks apps deploy` resets the resources array to empty. Any resources registered via `databricks apps update` before the deploy are lost.
+
+**Fix:** Always register resources AFTER the deploy, then redeploy again:
+```bash
+# Step 1: Deploy the app code
+databricks apps deploy <name> --source-code-path <path> --profile=<profile>
+
+# Step 2: Register resources (AFTER deploy)
+databricks apps update <name> --json '{
+  "resources": [
+    {"name": "sql-warehouse", "sql_warehouse": {"id": "<id>", "permission": "CAN_USE"}},
+    {"name": "mas-endpoint", "serving_endpoint": {"name": "mas-<tile>-endpoint", "permission": "CAN_QUERY"}},
+    {"name": "database", "database": {"instance_name": "<instance>", "database_name": "<db>", "permission": "CAN_CONNECT_AND_CREATE"}}
+  ]
+}' --profile=<profile>
+
+# Step 3: Redeploy to inject PGHOST/PGPORT/PGDATABASE/PGUSER
+databricks apps deploy <name> --source-code-path <path> --profile=<profile>
+
+# Step 4: Verify resources survived
+databricks apps get <name> --profile=<profile> -o json | jq '.resources'
+```
+
+**CRITICAL:** The resources MUST be present at deploy time for `PGHOST` to be injected. If resources are cleared by the deploy, you need the full 3-step cycle: deploy -> register -> redeploy.
+
+---
+
+### 46. asyncio.gather resilience needed in ALL Lakebase-touching endpoints
+
+**Symptom:** Workflows page, Architecture page, or any page that calls Lakebase "fails to load" or returns 500 errors — even though `/api/health` shows `lakebase: ok`.
+
+**Cause:** The health check only runs `SELECT 1` (no table access). Individual endpoints that query Lakebase tables (workflows, agent_actions, alerts, exceptions) will fail if:
+- The app SP lacks table permissions (Gotcha #33)
+- The connection pool has stale connections after permission changes
+- One Lakebase query in an `asyncio.gather` fails, taking down all parallel queries
+
+**Root causes discovered:**
+1. `/api/agent-overview` — 7 Lakebase queries in `asyncio.gather` without `return_exceptions=True`
+2. `/api/architecture` — inner `asyncio.gather` mixes Delta + Lakebase without `return_exceptions=True` AND no try/except wrapper -> returns raw 500
+3. `/api/exceptions` — single Lakebase query with no try/except -> returns raw 500
+4. Dashboard `Promise.all` — calls `/api/agent-overview` without `.catch()` -> one failing endpoint breaks entire dashboard
+
+**Fix pattern for ALL endpoints with mixed queries:**
+```python
+# Backend: Always use return_exceptions=True
+results = await asyncio.gather(
+    asyncio.to_thread(run_query, "..."),      # Delta
+    asyncio.to_thread(run_pg_query, "..."),   # Lakebase
+    return_exceptions=True,
+)
+def _safe(r, default=None):
+    if isinstance(r, Exception):
+        log.warning("Query failed: %s", r)
+        return default if default is not None else []
+    return r
+
+# Frontend: Always add .catch() in Promise.all
+const [metrics, overview] = await Promise.all([
+    fetchApi('/api/metrics').catch(() => ({})),
+    fetchApi('/api/agent-overview').catch(() => ({kpis: {}, workflows: []})),
+]);
+```
+
+**Prevention:** When generating template code, EVERY `asyncio.gather` that includes `run_pg_query` calls MUST have `return_exceptions=True`. EVERY `Promise.all` in the frontend MUST have `.catch()` on each call.

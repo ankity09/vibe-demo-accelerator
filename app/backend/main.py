@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import time as _time
 import uuid as _uuid
 from contextlib import asynccontextmanager
 from datetime import date
@@ -279,14 +280,26 @@ def _slugify(s: str) -> str:
 
 
 def _load_demo_config() -> dict:
-    """Load demo-config.yaml from the app directory (synced at deploy time)."""
-    try:
-        config_path = Path(__file__).resolve().parent.parent / "demo-config.yaml"
-        with open(config_path) as f:
-            return yaml.safe_load(f) or {}
-    except Exception as e:
-        log.warning("Could not read demo-config.yaml: %s", e)
-        return {}
+    """Load demo-config.yaml — checks app/ first (deployed), then project root (local dev).
+
+    Path resolution:
+      main.py -> .parent (backend/) -> .parent (app/) -> demo-config.yaml   [deployed]
+      main.py -> .parent (backend/) -> .parent (app/) -> .. (root/) -> demo-config.yaml  [local dev]
+    """
+    app_dir = Path(__file__).resolve().parent.parent
+    for candidate in [app_dir / "demo-config.yaml", app_dir.parent / "demo-config.yaml"]:
+        try:
+            with open(candidate) as f:
+                cfg = yaml.safe_load(f) or {}
+                if cfg:
+                    log.info("Loaded demo-config.yaml from %s", candidate)
+                    return cfg
+        except FileNotFoundError:
+            continue
+        except Exception as e:
+            log.warning("Error reading %s: %s", candidate, e)
+    log.warning("No demo-config.yaml found — agent discovery will rely on MAS API or mas_config.json")
+    return {}
 
 
 _DEMO_CONFIG: dict | None = None
@@ -354,9 +367,13 @@ def _agents_from_demo_config() -> list[dict]:
 
 
 def _read_mas_config_from_disk() -> list[dict]:
-    """Read agents[] from agent_bricks/mas_config.json as fallback."""
+    """Read agents[] from app/agent_bricks/mas_config.json as fallback.
+
+    Path: main.py -> .parent (backend/) -> .parent (app/) -> agent_bricks/mas_config.json
+    This works both locally and on Databricks since app/ is the synced directory.
+    """
     try:
-        config_path = Path(__file__).resolve().parent.parent.parent / "agent_bricks" / "mas_config.json"
+        config_path = Path(__file__).resolve().parent.parent / "agent_bricks" / "mas_config.json"
         with open(config_path) as f:
             data = json.load(f)
         agents = data.get("agents", [])
@@ -700,22 +717,30 @@ async def get_architecture():
             _empty(),  # placeholder — override with domain active-record count if needed
             asyncio.to_thread(run_pg_query, "SELECT count(*) as cnt FROM workflows WHERE status = 'pending_approval'"),
             asyncio.to_thread(run_pg_query, "SELECT relname, n_live_tup FROM pg_stat_user_tables"),
+            return_exceptions=True,  # Gotcha #41/#46: don't let one Lakebase failure kill all queries
         ),
         _fetch_mas_agents(),
     )
 
-    delta_tables = [{"name": t.get("tableName") or t.get("table_name", "")} for t in (q_tables or [])]
-    lakebase_tables = [t["tablename"] for t in (q_lb_tables or [])]
-    infra_status = "online" if q_health else "error"
+    # Safely extract results — any sub-query may be an Exception (Gotcha #46)
+    def _arch_safe(result, default=None):
+        if isinstance(result, Exception):
+            log.warning("Architecture sub-query failed: %s", result)
+            return default if default is not None else []
+        return result if result is not None else (default if default is not None else [])
+
+    delta_tables = [{"name": t.get("tableName") or t.get("table_name", "")} for t in _arch_safe(q_tables, [])]
+    lakebase_tables = [t["tablename"] for t in _arch_safe(q_lb_tables, [])]
+    infra_status = "online" if not isinstance(q_health, Exception) and q_health else "error"
     active_cases = 0
     try:
-        active_cases = (q_cases or [{}])[0].get("cnt", 0)
+        active_cases = (_arch_safe(q_cases, [{}]) or [{}])[0].get("cnt", 0)
     except Exception:
         pass
-    pending_wf = (q_wf or [{}])[0].get("cnt", 0)
+    pending_wf = (_arch_safe(q_wf, [{}]) or [{}])[0].get("cnt", 0)
 
     lakebase_row_counts = {}
-    for row in (q_lb_counts or []):
+    for row in _arch_safe(q_lb_counts, []):
         lakebase_row_counts[row.get("relname", "")] = int(row.get("n_live_tup", 0))
 
     delta_row_counts = {}
@@ -1103,24 +1128,43 @@ async def get_architecture_table_data(
 @app.get("/api/agent-overview")
 async def get_agent_overview():
     """Return KPIs, workflows, and recent agent actions for the Agent page."""
+
+    def _cnt(result):
+        """Safely extract count from a query result, handling exceptions (Gotcha #41)."""
+        if isinstance(result, Exception):
+            log.warning("Agent overview sub-query failed: %s", result)
+            return 0
+        return (result or [{}])[0].get("cnt", 0)
+
+    def _rows(result, default=None):
+        """Safely extract rows from a query result, handling exceptions (Gotcha #41)."""
+        if isinstance(result, Exception):
+            log.warning("Agent overview sub-query failed: %s", result)
+            return default if default is not None else []
+        return result or (default if default is not None else [])
+
     try:
-        q_pending, q_in_progress, q_completed_7d, q_actions_24h, q_workflows, q_actions = await asyncio.gather(
+        q_pending, q_in_progress, q_completed_7d, q_actions_24h, q_workflows, q_actions, q_open_exceptions = await asyncio.gather(
             asyncio.to_thread(run_pg_query, "SELECT count(*) as cnt FROM workflows WHERE status = 'pending_approval'"),
             asyncio.to_thread(run_pg_query, "SELECT count(*) as cnt FROM workflows WHERE status = 'in_progress'"),
             asyncio.to_thread(run_pg_query, "SELECT count(*) as cnt FROM workflows WHERE status = 'approved' AND completed_at >= NOW() - INTERVAL '7 days'"),
             asyncio.to_thread(run_pg_query, "SELECT count(*) as cnt FROM agent_actions WHERE created_at >= NOW() - INTERVAL '24 hours'"),
             asyncio.to_thread(run_pg_query, "SELECT * FROM workflows ORDER BY created_at DESC LIMIT 50"),
             asyncio.to_thread(run_pg_query, "SELECT * FROM agent_actions ORDER BY created_at DESC LIMIT 20"),
+            asyncio.to_thread(run_pg_query, "SELECT count(*) as cnt FROM exceptions WHERE status = 'open'"),
+            return_exceptions=True,  # Gotcha #41: don't let one failure kill all queries
         )
+        workflows = [_enrich_workflow(wf) for wf in _rows(q_workflows)]
         return {
             "kpis": {
-                "pending_approval": (q_pending or [{}])[0].get("cnt", 0),
-                "in_progress": (q_in_progress or [{}])[0].get("cnt", 0),
-                "completed_7d": (q_completed_7d or [{}])[0].get("cnt", 0),
-                "agent_actions_24h": (q_actions_24h or [{}])[0].get("cnt", 0),
+                "pending_approval": _cnt(q_pending),
+                "in_progress": _cnt(q_in_progress),
+                "completed_7d": _cnt(q_completed_7d),
+                "agent_actions_24h": _cnt(q_actions_24h),
+                "open_exceptions": _cnt(q_open_exceptions),
             },
-            "workflows": q_workflows or [],
-            "agent_actions_recent": q_actions or [],
+            "workflows": workflows,
+            "agent_actions_recent": _rows(q_actions),
         }
     except Exception as e:
         log.warning("Agent overview query failed (Lakebase tables may not exist): %s", e)
@@ -1155,6 +1199,281 @@ async def update_workflow(workflow_id: int, body: dict):
     if not result:
         raise HTTPException(404, f"Workflow {workflow_id} not found")
     return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Exception Management (Nice-to-Have #13) — generic alerts/exceptions CRUD
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/exceptions")
+async def list_exceptions(
+    status: str = Query(None),
+    severity: str = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """List exceptions with optional status/severity filters."""
+    clauses, params = [], []
+    if status:
+        clauses.append("status = %s")
+        params.append(_safe(status))
+    if severity:
+        clauses.append("severity = %s")
+        params.append(_safe(severity))
+    where = " WHERE " + " AND ".join(clauses) if clauses else ""
+    params.append(limit)
+    try:
+        rows = await asyncio.to_thread(
+            run_pg_query,
+            f"SELECT * FROM exceptions{where} ORDER BY created_at DESC LIMIT %s",
+            tuple(params),
+        )
+        return rows or []
+    except Exception as e:
+        # Gotcha #46: Lakebase table may not exist or SP may lack permissions
+        log.warning("Exceptions query failed (table may not exist): %s", e)
+        return []
+
+
+@app.post("/api/exceptions")
+async def create_exception(body: dict):
+    """Create a new exception/alert."""
+    required = ["entity_type", "entity_id", "exception_type", "description"]
+    for key in required:
+        if not body.get(key):
+            raise HTTPException(400, f"Missing required field: {key}")
+    result = await asyncio.to_thread(
+        write_pg,
+        """INSERT INTO exceptions (entity_type, entity_id, exception_type, severity, description, assigned_to)
+           VALUES (%s, %s, %s, %s, %s, %s)
+           RETURNING *""",
+        (
+            _safe(body["entity_type"]),
+            _safe(body["entity_id"]),
+            _safe(body["exception_type"]),
+            _safe(body.get("severity", "medium")),
+            body["description"][:2000],
+            body.get("assigned_to", "")[:100] or None,
+        ),
+    )
+    return result
+
+
+@app.patch("/api/exceptions/{exception_id}")
+async def update_exception(exception_id: int, body: dict):
+    """Update exception status (acknowledge / resolve / escalate / cancel)."""
+    new_status = body.get("status", "")
+    if new_status not in ("acknowledged", "resolved", "escalated", "cancelled"):
+        raise HTTPException(400, "Status must be acknowledged, resolved, escalated, or cancelled")
+    resolution = body.get("resolution", "")
+    resolved_at = "NOW()" if new_status in ("resolved", "cancelled") else "NULL"
+    result = await asyncio.to_thread(
+        write_pg,
+        f"""UPDATE exceptions
+            SET status = %s, resolution = %s, resolved_at = {resolved_at}
+            WHERE exception_id = %s
+            RETURNING *""",
+        (new_status, resolution[:2000] if resolution else None, exception_id),
+    )
+    if not result:
+        raise HTTPException(404, f"Exception {exception_id} not found")
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Morning Briefing — AI-generated summary of current state
+# ═══════════════════════════════════════════════════════════════════════════
+
+_briefing_cache: dict = {}
+_BRIEFING_TTL = 300  # 5 minutes
+
+
+def _build_briefing_context() -> str:
+    """Gather operational data for the briefing prompt."""
+    parts = []
+    try:
+        exceptions = run_pg_query(
+            "SELECT severity, count(*) as cnt FROM exceptions WHERE status = 'open' GROUP BY severity"
+        )
+        if exceptions:
+            parts.append("Open exceptions: " + ", ".join(f"{r['severity']}: {r['cnt']}" for r in exceptions))
+    except Exception:
+        pass
+    try:
+        workflows = run_pg_query(
+            "SELECT status, count(*) as cnt FROM workflows GROUP BY status"
+        )
+        if workflows:
+            parts.append("Workflows: " + ", ".join(f"{r['status']}: {r['cnt']}" for r in workflows))
+    except Exception:
+        pass
+    try:
+        actions = run_pg_query(
+            "SELECT count(*) as cnt FROM agent_actions WHERE created_at >= NOW() - INTERVAL '24 hours'"
+        )
+        if actions:
+            parts.append(f"Agent actions (24h): {actions[0].get('cnt', 0)}")
+    except Exception:
+        pass
+    # TODO(vibe): Add domain-specific data gathering here
+    # Example: parts.append(f"Late shipments: {run_query('SELECT COUNT(*) ...')}")
+    return "\n".join(parts) if parts else "No operational data available."
+
+
+@app.get("/api/briefing")
+async def get_briefing():
+    """Non-streaming briefing — cached with 5-min TTL."""
+    now = _time.time()
+    if _briefing_cache.get("data") and now - _briefing_cache.get("ts", 0) < _BRIEFING_TTL:
+        return _briefing_cache["data"]
+
+    context = await asyncio.to_thread(_build_briefing_context)
+
+    # Try MAS for a rich briefing
+    briefing_text = ""
+    try:
+        host, auth = await asyncio.to_thread(_get_mas_auth)
+        tile = MAS_TILE_ID
+        if tile and tile != "TODO":
+            ep = await asyncio.to_thread(w.serving_endpoints.get, f"mas-{tile}-endpoint")
+            full_uuid = ep.tile_endpoint_metadata.tile_id
+            # TODO(vibe): Customize the briefing prompt for your domain
+            prompt = f"Generate a brief morning operational briefing (3-5 bullet points). Focus on items needing attention. Data:\n{context}"
+            payload = {
+                "messages": [{"role": "user", "content": prompt}],
+                "multi_agent_supervisor_id": full_uuid,
+            }
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(
+                    f"{host}/api/2.0/serving-endpoints/mas-{tile}-endpoint/invocations",
+                    headers={"Authorization": auth, "Content-Type": "application/json"},
+                    json=payload,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                # Extract text from MAS response
+                choices = data.get("choices", [])
+                if choices:
+                    briefing_text = choices[0].get("message", {}).get("content", "")
+    except Exception as e:
+        log.warning("MAS briefing failed, using raw data: %s", e)
+
+    if not briefing_text:
+        briefing_text = f"**Operational Summary**\n{context}"
+
+    result = {"briefing": briefing_text, "raw_data": context, "generated_at": now}
+    _briefing_cache["data"] = result
+    _briefing_cache["ts"] = now
+    return result
+
+
+@app.get("/api/briefing/stream")
+async def stream_briefing():
+    """SSE streaming version of the briefing."""
+    context = await asyncio.to_thread(_build_briefing_context)
+
+    async def _stream():
+        tile = MAS_TILE_ID
+        if not tile or tile == "TODO":
+            # Gotcha #39: Never use backslashes inside f-string {…} — crashes Python 3.11
+            _fallback_text = "**Operational Summary**\n" + context
+            yield f"data: {json.dumps({'type': 'delta', 'text': _fallback_text})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+        try:
+            host, auth = await asyncio.to_thread(_get_mas_auth)
+            ep = await asyncio.to_thread(w.serving_endpoints.get, f"mas-{tile}-endpoint")
+            full_uuid = ep.tile_endpoint_metadata.tile_id
+            prompt = f"Generate a brief morning operational briefing (3-5 bullet points). Focus on items needing attention. Data:\n{context}"
+            payload = {
+                "messages": [{"role": "user", "content": prompt}],
+                "multi_agent_supervisor_id": full_uuid,
+                "stream": True,
+            }
+            async with httpx.AsyncClient(timeout=120) as client:
+                async with client.stream(
+                    "POST",
+                    f"{host}/api/2.0/serving-endpoints/mas-{tile}-endpoint/invocations",
+                    headers={"Authorization": auth, "Content-Type": "application/json"},
+                    json=payload,
+                ) as resp:
+                    async for line in resp.aiter_lines():
+                        if line.startswith("data: "):
+                            raw = line[6:]
+                            if raw == "[DONE]":
+                                break
+                            try:
+                                evt = json.loads(raw)
+                                choices = evt.get("choices", [])
+                                if choices:
+                                    delta = choices[0].get("delta", {}).get("content", "")
+                                    if delta:
+                                        yield f"data: {json.dumps({'type': 'delta', 'text': delta})}\n\n"
+                            except json.JSONDecodeError:
+                                pass
+        except Exception as e:
+            log.warning("Streaming briefing failed: %s", e)
+            # Gotcha #39: Never use backslashes inside f-string {…} — crashes Python 3.11
+            _err_fallback = "**Operational Summary**\n" + context
+            yield f"data: {json.dumps({'type': 'delta', 'text': _err_fallback})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Workflow Enrichment (Nice-to-Have #14) — reasoning chains, agent flows
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _enrich_workflow(wf: dict) -> dict:
+    """Enrich a workflow with headline, enriched_summary, reasoning_chain, and agent_flow.
+
+    This is a SKELETON function — domain-specific labels and templates are marked
+    with TODO(vibe) comments for vibe to fill during demo creation.
+    """
+    wf = dict(wf)  # don't mutate original
+
+    # ── Headline ──
+    if not wf.get("headline"):
+        # TODO(vibe): Add workflow_type -> headline templates for your domain
+        # Example: "reorder_po": f"Reorder PO for {wf.get('entity_id', 'unknown')}"
+        TYPE_HEADLINES = {}
+        wtype = wf.get("workflow_type", "workflow")
+        entity = f"{wf.get('entity_type', '')} {wf.get('entity_id', '')}".strip()
+        wf["headline"] = TYPE_HEADLINES.get(
+            wtype,
+            f"{wtype.replace('_', ' ').title()}: {entity}" if entity else wtype.replace("_", " ").title(),
+        )
+
+    # ── Enriched Summary ──
+    if not wf.get("enriched_summary"):
+        summary = wf.get("summary", "")
+        # TODO(vibe): Add domain-specific narrative generation
+        wf["enriched_summary"] = summary
+
+    # ── Reasoning Chain ──
+    chain = wf.get("reasoning_chain")
+    if isinstance(chain, str):
+        try:
+            chain = json.loads(chain)
+        except (json.JSONDecodeError, TypeError):
+            chain = []
+    if not chain or not isinstance(chain, list):
+        # Build a template chain from workflow metadata
+        chain = [
+            {"step": 1, "tool": "monitor", "label": "Trigger detected", "output": wf.get("trigger_source", "monitor"), "status": "completed"},
+            {"step": 2, "tool": "analyze", "label": "Analyzing situation", "output": wf.get("summary", "")[:100], "status": "completed"},
+        ]
+        if wf.get("entity_type"):
+            chain.append({"step": 3, "tool": "action", "label": f"Action on {wf.get('entity_type', '')}", "output": wf.get("entity_id", ""), "status": "completed"})
+    wf["reasoning_chain"] = chain
+
+    # ── Agent Flow ──
+    if not wf.get("agent_flow"):
+        # TODO(vibe): Customize agent flow data for your domain
+        wf["agent_flow"] = None  # Frontend falls back to buildDomainAgentFlow()
+
+    return wf
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════
