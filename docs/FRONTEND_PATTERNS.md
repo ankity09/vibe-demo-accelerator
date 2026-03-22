@@ -130,3 +130,122 @@ These classes are available in the template and layout-agnostic:
 - **Agent Workflows** — Workflow cards with severity, status filters, centered modal. Customize: `DOMAIN_AGENTS`, `WORKFLOW_AGENTS`, `TYPE_LABELS`.
 
 **The template layout (sidebar + topbar) is a minimal placeholder.** Replace it entirely based on the user's layout preference.
+
+## Streaming UI Patterns
+
+When `streaming.enabled: true`, the template includes optional streaming components wrapped in `<!-- STREAMING: START -->` / `<!-- STREAMING: END -->` comment blocks.
+
+### Telemetry Status Bar
+
+A fixed/sticky bar showing live feed status, KPI tiles, and a Start/Stop toggle:
+
+```html
+<div id="telemetry-bar" class="zb-bar">
+    <div class="zb-status">
+        <span class="zb-pulse"></span>
+        <span id="feed-status-text">Live Feed: Off</span>
+    </div>
+    <div class="zb-kpis">
+        <div class="zb-kpi">
+            <span id="kpi-stream1" class="zb-kpi-value">--</span>
+            <span class="zb-kpi-label">Stream 1</span>
+        </div>
+        <!-- Add more KPI tiles per stream -->
+    </div>
+    <button id="feed-toggle-btn" class="zb-toggle" onclick="toggleLiveFeed()">
+        Start Live Feed
+    </button>
+</div>
+```
+
+**Customization:** Replace "Stream 1", "Stream 2" labels with domain-specific names (e.g., "GPS Pings", "Sensor Readings"). Map `loadTelemetryStats()` response fields to the correct KPI tile IDs.
+
+### Live Feed Toggle Pattern
+
+```javascript
+async function toggleLiveFeed() {
+    const btn = document.getElementById('feed-toggle-btn');
+    if (!liveFeedActive) {
+        // Start: POST /api/streaming/start-live-feed
+        // Update button to "Stop", add .active class, start polling stats
+        telemetryInterval = setInterval(loadTelemetryStats, 15000);
+    } else {
+        // Stop: POST /api/streaming/stop-live-feed
+        // Update button to "Start", remove .active class, clear interval
+        clearInterval(telemetryInterval);
+    }
+}
+```
+
+**Key behavior:** When the feed starts, `loadTelemetryStats()` polls `/api/streaming/stats` every 15 seconds to update KPI tiles. When the feed stops (manually or auto-timeout), polling stops.
+
+### Auto-Refresh Interval Management
+
+Start polling when the streaming page is visible, stop when navigating away:
+
+```javascript
+// In navigate() function:
+function navigate(page) {
+    // ... existing page switch logic ...
+
+    // Start/stop streaming refresh based on page visibility
+    if (page === 'streaming' || page === 'dashboard') {
+        if (liveFeedActive && !telemetryInterval) {
+            telemetryInterval = setInterval(loadTelemetryStats, 15000);
+        }
+    } else {
+        if (telemetryInterval) {
+            clearInterval(telemetryInterval);
+            telemetryInterval = null;
+        }
+    }
+}
+```
+
+### Feed Status Recovery
+
+On page load, check if a feed is already running (handles app restart or page refresh):
+
+```javascript
+// Call on page load:
+async function checkFeedStatus() {
+    const resp = await fetchApi('/api/streaming/live-feed-status');
+    if (resp.running && !liveFeedActive) {
+        liveFeedActive = true;
+        // Update UI to reflect active state
+        // Start polling interval
+    }
+}
+checkFeedStatus();
+```
+
+### CSS for Streaming Components
+
+```css
+.zb-bar {
+    display: flex; align-items: center; gap: 24px;
+    padding: 12px 24px; background: var(--card-bg);
+    border-bottom: 1px solid var(--border);
+}
+.zb-pulse {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-muted); display: inline-block;
+}
+.zb-pulse.live {
+    background: var(--green);
+    animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.3); }
+}
+.zb-kpi { text-align: center; }
+.zb-kpi-value { font-size: 1.5rem; font-weight: 700; display: block; }
+.zb-kpi-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; }
+.zb-toggle {
+    padding: 8px 20px; border: none; border-radius: 6px; cursor: pointer;
+    font-weight: 600; background: var(--green); color: #fff;
+}
+.zb-toggle.active { background: var(--red); }
+.zb-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+```

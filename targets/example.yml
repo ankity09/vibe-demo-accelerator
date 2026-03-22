@@ -1,0 +1,42 @@
+# =============================================================================
+# Target Configuration Template
+# =============================================================================
+#
+# How to use:
+#   1. Copy this file: cp targets/example.yml targets/<your-target>.yml
+#   2. Replace ALL "CHANGEME" values with your workspace-specific settings
+#   3. Deploy:
+#        databricks bundle deploy --target <your-target>
+#      Or full orchestration:
+#        python scripts/deploy.py --target <your-target>
+#
+# Finding your values:
+#   - Workspace URL:   From your FEVM workspace or Databricks account console
+#   - Warehouse ID:    Workspace > SQL Warehouses > click warehouse > copy ID from URL
+#   - Catalog:         FEVM auto-creates: serverless_<name_underscored>_catalog
+#   - Schema:          You choose this — use snake_case (e.g., smartagri_supply_chain)
+#   - Lakebase:        Instance uses hyphens (e.g., my-demo), database uses underscores
+#   - MAS Tile ID:     First 8 chars of the full UUID (see CLAUDE.md Gotcha #24)
+#   - Genie Space ID:  From Genie Space creation API response
+#   - KA Tile ID:      From Knowledge Assistant tile creation
+#   - Workspace Email: Your Databricks login email
+#
+# =============================================================================
+
+targets:
+  example:
+    workspace:
+      host: https://fe-sandbox-serverless-CHANGEME.cloud.databricks.com
+    variables:
+      app_name: "CHANGEME-demo"
+      warehouse_id: "CHANGEME"
+      catalog: "serverless_CHANGEME_catalog"
+      schema: "CHANGEME_schema"
+      lakebase_instance: "CHANGEME-instance"
+      lakebase_database: "CHANGEME_db"
+      mas_tile_id: ""
+      genie_space_id: ""
+      ka_tile_id: ""
+      demo_name: "CHANGEME Demo"
+      demo_customer: "CHANGEME Company"
+      workspace_email: "you@databricks.com"

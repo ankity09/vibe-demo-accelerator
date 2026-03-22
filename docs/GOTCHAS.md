@@ -571,3 +571,42 @@ const [metrics, overview] = await Promise.all([
 ```
 
 **Prevention:** When generating template code, EVERY `asyncio.gather` that includes `run_pg_query` calls MUST have `return_exceptions=True`. EVERY `Promise.all` in the frontend MUST have `.catch()` on each call.
+
+---
+
+### 47. ZeroBus SDK only works in notebooks
+
+The `databricks-zerobus-ingest-sdk` package is NOT compatible with the Databricks Apps runtime. Use it in notebooks only for the live streaming burst setup (`notebooks/04_streaming_setup.py`, cells 5-7). The app uses the simulation-based live feed engine (`core/livefeed.py`) which inserts rows via the Statement Execution API's `run_query()`.
+
+**Impact:** Don't try to `pip install databricks-zerobus-ingest-sdk` in `requirements.txt` — it will fail at deploy time. The app's live feed is always simulation-based.
+
+---
+
+### 48. Live feed INSERT uses Statement Execution API, not Lakebase
+
+Streaming data goes into Delta Lake tables (not Lakebase). The `LiveFeedEngine` uses `run_query()` with INSERT statements through the SQL warehouse. This means the **warehouse must be running** during live feed demos.
+
+**Implication:** If the warehouse is stopped or scaling up, the live feed will buffer/fail silently until the warehouse is available. The engine logs errors per-stream but does not crash the app.
+
+---
+
+### 49. Live feed auto-stops after duration
+
+The `LiveFeedEngine` background task has a configurable duration (default 300s / 5 min). It auto-stops when the timer expires OR when `stop()` is called. If the app restarts during a live feed (e.g., Databricks Apps restart), the state resets — `_running` becomes `False` and the async task is garbage-collected. No cleanup needed.
+
+**Demo tip:** Start the feed at the beginning of the streaming demo section. It auto-stops after 5 minutes, which is usually enough for the demo moment. If you need longer, pass `duration=600` in the POST body.
+
+---
+
+### 50. Leaflet/map invalidateSize after tab switch
+
+When a Leaflet map is inside a hidden tab/page and the user navigates to it, the map renders with incorrect dimensions (grey tiles, offset markers). Call `map.invalidateSize()` after the page container becomes visible.
+
+```javascript
+// In navigate() function, after showing the page:
+if (page === 'fleet' && typeof fleetMap !== 'undefined') {
+    setTimeout(() => fleetMap.invalidateSize(), 100);
+}
+```
+
+This applies to any visualization library that measures container dimensions on render (Leaflet, Mapbox GL, ECharts, Plotly).

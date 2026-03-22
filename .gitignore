@@ -6,3 +6,11 @@ __pycache__/
 dist/
 build/
 .DS_Store
+
+# Databricks Asset Bundles
+.databricks/
+bundle_artifacts/
+
+# Deploy script state
+scripts/__pycache__/
+scripts/*.pyc

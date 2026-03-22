@@ -477,6 +477,30 @@ tr:hover td { background:#f8fafc; }
 .de-loading { display:flex; align-items:center; justify-content:center; padding:40px; color:var(--text-muted); font-size:13px; gap:8px; }
 .de-empty-state { text-align:center; padding:32px; color:var(--text-muted); font-size:13px; }
 @keyframes spin { to { transform:rotate(360deg); } }
+
+/* ── STREAMING: START ─────────────────────────────────────────────────────
+   Telemetry status bar — shows live feed state, KPI tiles, start/stop toggle.
+   Include this section only when the demo uses Databricks streaming / live feeds.
+   ──────────────────────────────────────────────────────────────────────── */
+.zb-bar { background:linear-gradient(135deg, var(--primary-dark, #0f172a) 0%, var(--primary, #1e293b) 100%); border-radius:var(--radius); padding:14px 20px; margin-bottom:16px; color:#fff; }
+.zb-bar-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+.zb-bar-header h3 { font-size:13px; margin:0; display:flex; align-items:center; gap:8px; }
+.zb-bar-kpis { display:flex; gap:12px; flex-wrap:wrap; }
+.zb-kpi { background:rgba(255,255,255,.08); border-radius:6px; padding:8px 14px; min-width:110px; border:1px solid rgba(255,255,255,.1); }
+.zb-kpi-label { font-size:9px; text-transform:uppercase; letter-spacing:.5px; opacity:.6; }
+.zb-kpi-value { font-size:20px; font-weight:700; margin-top:2px; }
+.zb-kpi-sub { font-size:10px; opacity:.5; }
+.zb-pulse { width:8px; height:8px; border-radius:50%; background:var(--steel, #64748b); display:inline-block; flex-shrink:0; }
+.zb-pulse.live { background:var(--green, #10b981); animation:zbPulseAnim 2s ease-in-out infinite; }
+@keyframes zbPulseAnim { 0%,100% { opacity:.4; transform:scale(.9); } 50% { opacity:1; transform:scale(1.1); } }
+.zb-toggle { font-size:11px; padding:5px 14px; border:none; border-radius:6px; cursor:pointer; font-weight:600; color:#fff; transition:all var(--transition-fast, .15s); }
+.zb-toggle { background:var(--green, #10b981); }
+.zb-toggle:hover { background:#059669; }
+.zb-toggle.active { background:var(--red, #ef4444); }
+.zb-toggle.active:hover { background:#dc2626; }
+.zb-toggle:disabled { opacity:.6; cursor:wait; }
+/* ── STREAMING: END ───────────────────────────────────────────────────── */
+
 </style>
 </head>
 <body>
@@ -509,6 +533,45 @@ tr:hover td { background:#f8fafc; }
     </div>
   </div>
   <div id="content">
+
+    <!-- STREAMING: START ─────────────────────────────────────────────────
+         Telemetry status bar — live feed indicator, KPI tiles, start/stop toggle.
+         Visible only when streaming is enabled (display:none by default).
+         TODO(vibe): Customize KPI tiles, labels, and IDs for your domain.
+         ──────────────────────────────────────────────────────────────── -->
+    <div id="telemetry-bar" class="zb-bar" style="display:none;">
+      <div class="zb-bar-header">
+        <h3>
+          <span class="zb-pulse" id="zb-pulse"></span>
+          <span id="feed-status-text">Live Feed: Off</span>
+          <span class="pill pill-blue" style="font-size:9px">Streaming</span>
+        </h3>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <button id="feed-toggle-btn" class="zb-toggle" onclick="toggleLiveFeed()">&#x25B6; Start Live Feed</button>
+          <span style="font-size:10px;opacity:.5" id="zb-last-update"></span>
+        </div>
+      </div>
+      <div class="zb-bar-kpis" id="zb-kpis">
+        <!-- TODO(vibe): Customize KPI tiles for your domain -->
+        <div class="zb-kpi">
+          <div class="zb-kpi-label">Stream 1</div>
+          <div class="zb-kpi-value" id="kpi-stream1">--</div>
+        </div>
+        <div class="zb-kpi">
+          <div class="zb-kpi-label">Stream 2</div>
+          <div class="zb-kpi-value" id="kpi-stream2">--</div>
+        </div>
+        <div class="zb-kpi">
+          <div class="zb-kpi-label">Entities</div>
+          <div class="zb-kpi-value" id="kpi-entities">--</div>
+        </div>
+        <div class="zb-kpi">
+          <div class="zb-kpi-label">Alerts</div>
+          <div class="zb-kpi-value" id="kpi-alerts" style="color:var(--red)">--</div>
+        </div>
+      </div>
+    </div>
+    <!-- STREAMING: END ──────────────────────────────────────────────── -->
 
     <!-- ═══ Dashboard Page ═══ -->
     <div id="page-dashboard" class="page active">
@@ -2562,6 +2625,107 @@ function renderReasoningChain(chain) {
   }).join('');
   return `<div style="margin-top:16px"><label style="font-size:10px;text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;font-weight:700">Reasoning Chain</label><div class="rc-chain">${steps}</div></div>`;
 }
+
+// ── STREAMING: START ──────────────────────────────────────────────────────
+// Live feed control: toggleLiveFeed(), checkFeedStatus(), loadTelemetryStats()
+// Uses generic /api/streaming/* endpoints. Include this block only when the
+// demo uses Databricks streaming / live feeds.
+// ──────────────────────────────────────────────────────────────────────────
+let liveFeedActive = false;
+let telemetryInterval = null;
+
+async function toggleLiveFeed() {
+  const btn = document.getElementById('feed-toggle-btn');
+  const statusText = document.getElementById('feed-status-text');
+  if (!btn) return;
+
+  if (!liveFeedActive) {
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+    try {
+      const resp = await fetch('/api/streaming/start-live-feed', { method: 'POST' });
+      if (resp.ok) {
+        liveFeedActive = true;
+        btn.textContent = '\u23F9 Stop Live Feed';
+        btn.classList.add('active');
+        statusText.textContent = 'Live Feed: Active';
+        document.getElementById('zb-pulse')?.classList.add('live');
+        // Start polling stats
+        telemetryInterval = setInterval(loadTelemetryStats, 15000);
+        loadTelemetryStats();
+      }
+    } catch (e) {
+      console.error('Failed to start live feed:', e);
+    }
+    btn.disabled = false;
+  } else {
+    btn.disabled = true;
+    try {
+      await fetch('/api/streaming/stop-live-feed', { method: 'POST' });
+    } catch (e) { /* ignore */ }
+    liveFeedActive = false;
+    btn.textContent = '\u25B6 Start Live Feed';
+    btn.classList.remove('active');
+    statusText.textContent = 'Live Feed: Off';
+    document.getElementById('zb-pulse')?.classList.remove('live');
+    if (telemetryInterval) { clearInterval(telemetryInterval); telemetryInterval = null; }
+    btn.disabled = false;
+  }
+}
+
+async function checkFeedStatus() {
+  try {
+    const resp = await fetch('/api/streaming/live-feed-status');
+    const data = await resp.json();
+    const btn = document.getElementById('feed-toggle-btn');
+    const statusText = document.getElementById('feed-status-text');
+    if (data.running && !liveFeedActive) {
+      liveFeedActive = true;
+      if (btn) {
+        btn.textContent = '\u23F9 Stop Live Feed';
+        btn.classList.add('active');
+      }
+      if (statusText) statusText.textContent = 'Live Feed: Active';
+      document.getElementById('zb-pulse')?.classList.add('live');
+      if (!telemetryInterval) {
+        telemetryInterval = setInterval(loadTelemetryStats, 15000);
+      }
+    }
+    // Show the bar if the backend supports streaming
+    const bar = document.getElementById('telemetry-bar');
+    if (bar) bar.style.display = '';
+  } catch (e) {
+    // Streaming endpoints not available — keep bar hidden
+  }
+}
+
+async function loadTelemetryStats() {
+  try {
+    const resp = await fetch('/api/streaming/stats');
+    const data = await resp.json();
+    // TODO(vibe): Map your streaming stats to KPI tile IDs
+    // Example: document.getElementById('kpi-stream1').textContent = data.streams?.stream1?.rows || '--';
+    if (data.total_rows !== undefined) {
+      document.getElementById('kpi-stream1').textContent = data.total_rows.toLocaleString();
+    }
+    if (data.stream2_rows !== undefined) {
+      document.getElementById('kpi-stream2').textContent = data.stream2_rows.toLocaleString();
+    }
+    if (data.entities_active !== undefined) {
+      document.getElementById('kpi-entities').textContent = data.entities_active;
+    }
+    if (data.alerts !== undefined) {
+      document.getElementById('kpi-alerts').textContent = data.alerts;
+    }
+    document.getElementById('zb-last-update').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    document.getElementById('zb-pulse').style.background = '';
+  } catch (e) { /* stats fetch failed — leave tiles as-is */ }
+}
+
+// Check feed status on load (auto-discovers if streaming endpoints exist;
+// if they do, shows the telemetry bar and syncs button state)
+checkFeedStatus();
+// ── STREAMING: END ────────────────────────────────────────────────────────
 
 /* ═══════════════════════════════════════════════════════════════════════════
    INIT

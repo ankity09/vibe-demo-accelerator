@@ -80,9 +80,10 @@ databricks current-user me --profile=<name>
 - `streaming.py` — MAS SSE streaming proxy with action card detection
 - `health.py` — 3-check health endpoint (SDK, SQL warehouse, Lakebase)
 - `helpers.py` — `_safe()` input validation, `_extract_agent_response()` parser
+- `livefeed.py` — Generic async live feed engine for real-time streaming demos
 
 `lakebase-mcp-server/` — Standalone Lakebase MCP server deployed as a separate Databricks App.
-- `mcp_server.py` — 16 MCP tools (CRUD, DDL, SQL, transactions) + web UI
+- `mcp_server.py` — 33 MCP tools (CRUD, DDL, SQL, transactions, schema comparison, migration) + web UI
 - `app.yaml` — Template pointing to Lakebase instance
 - Deployed separately, wired to MAS as an `external-mcp-server` sub-agent for writes
 
@@ -150,6 +151,43 @@ Async generator yielding SSE events from MAS. Configure `action_card_tables` to 
 
 ### `health_router` (FastAPI APIRouter)
 Include with `app.include_router(health_router)`. Exposes `GET /api/health` returning `{status: "healthy"|"degraded", checks: {sdk, sql_warehouse, lakebase}}`.
+
+### Real-Time Streaming (Optional — `livefeed.py`)
+
+When a demo includes streaming (`streaming.enabled: true` in demo-config.yaml), the `livefeed.py` core module provides a generic async live feed engine.
+
+**Core Class: `LiveFeedEngine`**
+- Configurable streams (each with target Delta table, cadence, and value generator function)
+- Entity/route system with scenario support (normal, fault, warning, deviation, depletion)
+- Geo interpolation for spatial entities (lat/lon progress 0→1 with GPS jitter)
+- Background `asyncio.Task` with configurable duration (default 300s)
+- Per-stream stats tracking (rows inserted, errors, elapsed time)
+- Thread-safe start/stop/status control
+
+**Usage in `main.py`:**
+```python
+from backend.core.livefeed import LiveFeedEngine, StreamConfig, EntityConfig, create_streaming_router
+
+engine = LiveFeedEngine(run_query_fn=run_query, catalog=CATALOG, schema=SCHEMA)
+engine.configure(streams=[...], entities=[...])
+app.include_router(create_streaming_router(engine))
+```
+
+**Streaming Router Endpoints (mounted at `/api/streaming/`):**
+- `POST /start-live-feed` — Start the background feed task
+- `POST /stop-live-feed` — Stop the feed gracefully
+- `GET /live-feed-status` — Running state, elapsed time, stats
+- `GET /stats` — Per-stream row counts and entity stats
+
+**Notebook: `04_streaming_setup.py`**
+- Template for creating streaming Delta tables, defining entities/routes, and generating 24h historical backfill
+- Optional ZeroBus SDK integration for real-time streaming via Databricks ZeroBus
+- Simulation fallback for demos without ZeroBus endpoint (app-side INSERTs via Statement Execution API)
+
+**Frontend Components (in `<!-- STREAMING -->` blocks):**
+- Telemetry Status Bar: KPI tiles + "Start Live Feed" toggle button
+- Auto-refresh polling (15s interval) when feed is active
+- All wrapped in clearly marked comment blocks for easy customization
 
 ## Backend Patterns
 
@@ -346,6 +384,61 @@ databricks apps update <app-name> --json '{
 | Chat returns 403 | MAS endpoint resource registered but SP lacks CAN_QUERY | Grant CAN_QUERY explicitly on the serving endpoint (Gotcha #25) — no redeploy needed |
 | Chat returns 403 (intermittent, works after page refresh) | OBO user token expired (~12h lifetime) | Implement `session_expired` auto-refresh pattern (Gotcha #29) |
 | 401 / empty `{}` from curl | Normal — Databricks Apps require browser OAuth | Open the app URL in a browser instead |
+
+## DABs Deployment (Recommended)
+
+The accelerator now supports Databricks Asset Bundles (DABs) for reproducible, multi-workspace deployments.
+
+### Quick Start
+```bash
+# 1. Create a target config for your workspace
+cp targets/example.yml targets/my-workspace.yml
+# Edit targets/my-workspace.yml with your workspace values
+
+# 2. Full deployment (Lakebase + app + permissions)
+python scripts/deploy.py --target my-workspace
+
+# 3. Or just redeploy code changes
+databricks bundle deploy --target my-workspace
+```
+
+### Adding a New Workspace
+1. Copy `targets/example.yml` to `targets/<workspace-name>.yml`
+2. Fill in all variable values (workspace URL, warehouse ID, catalog, schema, etc.)
+3. Run `python scripts/deploy.py --target <workspace-name>`
+4. After creating Genie Space and MAS, update the target with their IDs
+5. Re-run: `python scripts/deploy.py --target <workspace-name> --step template --step deploy --step resources`
+
+### Deploy Script Steps
+```
+python scripts/deploy.py --target <target> [--step <step>...]
+
+Steps (run in order by default):
+  config       Load and validate target config
+  template     Generate app/app.yaml from variables
+  lakebase     Create Lakebase instance + database + apply schemas
+  data         Run setup notebooks (prints instructions)
+  ai           Create Genie Space + MAS (prints instructions)
+  deploy       Run databricks bundle deploy
+  resources    Register app resources + redeploy for PGHOST injection
+  permissions  Grant SP access to catalog, warehouse, endpoints
+  verify       Print app URL and health check instructions
+```
+
+### Files
+- `databricks.yml` — Bundle definition with variables and app resource
+- `targets/*.yml` — Per-workspace target configs (one file per workspace)
+- `scripts/deploy.py` — Deployment orchestrator for everything DABs can't do
+- `scripts/requirements.txt` — Python deps for the deploy script
+
+### When to Use DABs vs Manual Deploy
+| Scenario | Use |
+|----------|-----|
+| New workspace from scratch | `python scripts/deploy.py --target <name>` (runs all steps) |
+| Code change, redeploy | `databricks bundle deploy --target <name>` |
+| Lakebase schema change | `python scripts/deploy.py --target <name> --step lakebase` |
+| After creating MAS/Genie | Update target YAML, then `--step template --step deploy --step resources` |
+| Quick redeploy (no DABs) | `python scripts/deploy.py --target <name> --step deploy --skip-dabs` |
 
 ## Known Gotchas
 
@@ -640,6 +733,18 @@ Deploying resets `resources: []`. Any resources registered before the deploy are
 ### 46. asyncio.gather resilience in ALL Lakebase-touching endpoints
 Health check passes (`SELECT 1`) but individual endpoints fail because they query Lakebase tables without error handling. **Root causes:** `/api/agent-overview` has 7 queries without `return_exceptions=True`; `/api/architecture` inner gather mixes Delta+Lakebase without it; `/api/exceptions` has no try/except; dashboard `Promise.all` lacks `.catch()`. **Fix:** Every `asyncio.gather` with `run_pg_query` needs `return_exceptions=True`. Every frontend `Promise.all` needs `.catch()` on each call.
 
+### 47. ZeroBus SDK only works in notebooks
+The `databricks-zerobus-ingest-sdk` is NOT compatible with Databricks Apps runtime. Use it in `notebooks/04_streaming_setup.py` only. The app uses `core/livefeed.py` which inserts via Statement Execution API.
+
+### 48. Live feed INSERT uses Statement Execution API, not Lakebase
+Streaming data goes into Delta Lake tables via `run_query()` INSERT statements. The SQL warehouse must be running during live feed demos.
+
+### 49. Live feed auto-stops after duration
+The `LiveFeedEngine` background task auto-stops after configurable duration (default 300s). If the app restarts, state resets cleanly — no orphan tasks.
+
+### 50. Map/viz invalidateSize after tab switch
+Leaflet maps (and similar viz libraries) in hidden tabs render with wrong dimensions. Call `map.invalidateSize()` after the page becomes visible.
+
 ## Lakebase MCP Server Deployment
 
 The scaffold includes a **shared** Lakebase MCP server at `lakebase-mcp-server/`. Deploy it once and reuse across all demos via URL-based database routing (`/db/{database}/mcp/`).
@@ -714,7 +819,7 @@ In `agent_bricks/mas_config.json`, add (note: `agent_type` uses kebab-case):
 ## What to Customize vs Keep
 
 ### DO NOT MODIFY
-- `app/backend/core/` — All 5 core modules
+- `app/backend/core/` — All 6 core modules (lakehouse, lakebase, streaming, health, helpers, livefeed)
 - `app/requirements.txt` — Pinned dependencies
 - `lakebase/core_schema.sql` — Required tables
 - `lakebase-mcp-server/app/mcp_server.py` — MCP server code (works with any Lakebase database)
@@ -724,6 +829,7 @@ In `agent_bricks/mas_config.json`, add (note: `agent_type` uses kebab-case):
 - `app/backend/main.py` — Add domain routes after the marked section
 - `lakebase/domain_schema.sql` — Add domain-specific tables
 - `lakebase-mcp-server/app/app.yaml` — Set instance_name and database_name
+- `notebooks/04_streaming_setup.py` — Fill streaming table schemas, entities, generators (if streaming enabled)
 - `notebooks/01_setup_schema.sql` — Set catalog/schema names
 - `notebooks/02_generate_data.py` — Define domain constants, generate tables
 - `notebooks/03_seed_lakebase.py` — Seed domain Lakebase tables

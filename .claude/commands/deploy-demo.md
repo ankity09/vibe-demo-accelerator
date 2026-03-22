@@ -2,6 +2,21 @@
 
 Redeploy the current demo app to Databricks. This is the command you run after making code changes.
 
+## DABs Deploy (Preferred)
+
+If the project has `databricks.yml` and a target configured:
+```bash
+# Full deploy (first time)
+python scripts/deploy.py --target <target>
+
+# Code-only redeploy
+databricks bundle deploy --target <target>
+```
+
+If no DABs target is configured, fall back to the manual steps below.
+
+---
+
 ## Steps
 
 1. **Read `demo-config.yaml`** to get the CLI profile, app name, and workspace path.

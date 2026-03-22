@@ -1,0 +1,181 @@
+# =============================================================================
+# Databricks Asset Bundles (DABs) — Bundle Definition
+# =============================================================================
+#
+# This file defines the Databricks App, its environment variables, resources,
+# and an optional setup job for data notebooks. It uses DABs variables so the
+# same bundle can be deployed to multiple workspaces with different configs.
+#
+# --- Adding a new workspace ---
+#   1. Copy targets/example.yml to targets/<target-name>.yml
+#   2. Fill in all variable values for your workspace
+#   3. Deploy: databricks bundle deploy --target <target-name>
+#
+# --- Full orchestration (recommended) ---
+#   python scripts/deploy.py --target <target-name>
+#   This runs schema setup, data generation, Lakebase seeding, app deploy,
+#   resource registration, and permission grants in the correct order.
+#
+# --- Quick deploy (app code only) ---
+#   databricks bundle deploy --target <target-name>
+#
+# --- Validate before deploying ---
+#   databricks bundle validate --target <target-name>
+#
+# =============================================================================
+
+bundle:
+  name: vibe-demo-accelerator
+
+# ---------------------------------------------------------------------------
+# Variables — workspace-specific values injected into resources and configs.
+# Override these in targets/<target-name>.yml for each workspace deployment.
+# ---------------------------------------------------------------------------
+variables:
+  # Required — no defaults, must be set per target
+  app_name:
+    description: "Databricks App name (e.g., simplot-supply-chain)"
+  warehouse_id:
+    description: "SQL Warehouse ID from the workspace"
+  catalog:
+    description: "Unity Catalog name (e.g., serverless_simplot_v1_catalog)"
+  schema:
+    description: "Schema name within the catalog (e.g., smartagri_supply_chain)"
+  lakebase_instance:
+    description: "Lakebase instance name — use hyphens, NOT underscores"
+  lakebase_database:
+    description: "Lakebase database name within the instance"
+  workspace_email:
+    description: "User email for workspace file paths (e.g., ankit.yadav@databricks.com)"
+
+  # Optional — sensible defaults provided
+  mas_tile_id:
+    description: "MAS tile ID — first 8 chars of the full tile UUID"
+    default: ""
+  genie_space_id:
+    description: "Genie Space ID for natural language queries"
+    default: ""
+  ka_tile_id:
+    description: "Knowledge Assistant tile ID"
+    default: ""
+  demo_name:
+    description: "Display name for the demo (shown in app UI)"
+    default: "Vibe Demo"
+  demo_customer:
+    description: "Customer name for the demo"
+    default: "Demo Customer"
+
+# ---------------------------------------------------------------------------
+# Include target-specific overrides from the targets/ directory.
+# Each .yml file in targets/ defines a workspace with variable values.
+# ---------------------------------------------------------------------------
+include:
+  - ./targets/*.yml
+
+# ---------------------------------------------------------------------------
+# Resources — Databricks App definition and optional setup job.
+# ---------------------------------------------------------------------------
+resources:
+  apps:
+    vibe_demo_app:
+      name: ${var.app_name}
+      description: "${var.demo_name} — AI-powered demo for ${var.demo_customer}"
+      source_code_path: ./app
+
+      config:
+        command:
+          - uvicorn
+          - backend.main:app
+          - --host
+          - 0.0.0.0
+          - --port
+          - "8000"
+        env:
+          - name: DATABRICKS_WAREHOUSE_ID
+            value: ${var.warehouse_id}
+          - name: CATALOG
+            value: ${var.catalog}
+          - name: SCHEMA
+            value: ${var.schema}
+          - name: MAS_TILE_ID
+            value: ${var.mas_tile_id}
+          - name: GENIE_SPACE_ID
+            value: ${var.genie_space_id}
+          - name: KA_TILE_ID
+            value: ${var.ka_tile_id}
+          - name: DEMO_NAME
+            value: ${var.demo_name}
+          - name: DEMO_CUSTOMER
+            value: ${var.demo_customer}
+
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        - name: mas-endpoint
+          serving_endpoint:
+            name: mas-${var.mas_tile_id}-endpoint
+            permission: CAN_QUERY
+        - name: database
+          database:
+            instance_name: ${var.lakebase_instance}
+            database_name: ${var.lakebase_database}
+            permission: CAN_CONNECT_AND_CREATE
+
+  # -------------------------------------------------------------------------
+  # Setup Job — runs notebooks to create schema, generate data, seed Lakebase.
+  # Uncomment when notebooks are customized for your demo domain.
+  # -------------------------------------------------------------------------
+  # jobs:
+  #   setup_job:
+  #     name: ${var.app_name}-setup
+  #     tasks:
+  #       - task_key: setup_schema
+  #         notebook_task:
+  #           notebook_path: ./notebooks/01_setup_schema.sql
+  #           warehouse_id: ${var.warehouse_id}
+  #
+  #       - task_key: generate_data
+  #         depends_on:
+  #           - task_key: setup_schema
+  #         notebook_task:
+  #           notebook_path: ./notebooks/02_generate_data.py
+  #           warehouse_id: ${var.warehouse_id}
+  #
+  #       - task_key: seed_lakebase
+  #         depends_on:
+  #           - task_key: generate_data
+  #         notebook_task:
+  #           notebook_path: ./notebooks/03_seed_lakebase.py
+  #           warehouse_id: ${var.warehouse_id}
+
+# ---------------------------------------------------------------------------
+# Targets — define one per workspace. The dev target is the default.
+# Real workspace targets should be defined in targets/<name>.yml files.
+# ---------------------------------------------------------------------------
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: ${DATABRICKS_HOST}
+
+  # -------------------------------------------------------------------------
+  # Example: Simplot Supply Chain workspace
+  # -------------------------------------------------------------------------
+  # simplot-v1:
+  #   workspace:
+  #     host: https://fe-sandbox-serverless-simplot-v1.cloud.databricks.com
+  #   variables:
+  #     app_name: simplot-supply-chain
+  #     warehouse_id: "f040ec9783cb05b2"
+  #     catalog: "serverless_simplot_v1_catalog"
+  #     schema: "smartagri_supply_chain"
+  #     lakebase_instance: "supply-chain"
+  #     lakebase_database: "supply_chain_db"
+  #     mas_tile_id: "06014fd9"
+  #     genie_space_id: "01f11844230b139bb62ba41ebb81d2b1"
+  #     demo_name: "Simplot Supply Chain"
+  #     demo_customer: "J.R. Simplot Company"
+  #     workspace_email: "ankit.yadav@databricks.com"
