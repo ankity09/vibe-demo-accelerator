@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { LayoutDashboard, MessageSquare, GitBranch } from 'lucide-react'
 import { AppShell } from '@/layouts/AppShell'
+import { ThemeToggle } from '@/components/vda/ThemeToggle'
 import { demoConfig } from '@/demo-config'
 import type { RouteConfig } from '@/types'
 
@@ -22,6 +23,7 @@ export function App() {
         layout={demoConfig.layout}
         demoName={demoConfig.name}
         routes={routes}
+        headerRight={<ThemeToggle position="nav" />}
       >
         <Suspense fallback={<div className="animate-pulse bg-surface-hover h-64 rounded-lg" />}>
           <Routes>
