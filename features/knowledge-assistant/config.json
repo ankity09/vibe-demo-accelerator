@@ -1,0 +1,16 @@
+{
+  "name": "Knowledge Assistant",
+  "id": "knowledge-assistant",
+  "description": "Vector-backed document Q&A sub-agent for RAG over uploaded PDFs, wikis, and domain documentation",
+  "category": "ai",
+  "ai_dev_kit": {
+    "required_tools": ["manage_ka"],
+    "required_skills": ["databricks-agent-bricks"]
+  },
+  "env_vars": [
+    { "key": "KA_ID", "description": "Knowledge Assistant tile ID from Agent Bricks workspace page", "example": "01ef1234abcd5678" }
+  ],
+  "app_dependencies": { "python": [], "npm": [] },
+  "requires": ["vector-search"],
+  "auto_include_with": ["mas"]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "Lakeflow Connect",
+  "id": "lakeflow-connect",
+  "description": "Managed connectors for ingesting data from external sources (Salesforce, SAP, Workday, databases) into Delta Lake",
+  "category": "data-platform",
+  "ai_dev_kit": {
+    "required_tools": [],
+    "required_skills": []
+  },
+  "env_vars": [
+    { "key": "LAKEFLOW_PIPELINE_ID", "description": "Lakeflow Connect ingestion pipeline ID", "example": "01ef1234-abcd-5678-efgh-ijklmnopqrst" }
+  ],
+  "app_dependencies": { "python": [], "npm": [] },
+  "requires": ["sql-warehouse"],
+  "auto_include_with": ["declarative-pipelines"]
+}

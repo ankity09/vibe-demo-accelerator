@@ -1,0 +1,16 @@
+{
+  "name": "Declarative Pipelines (DLT)",
+  "id": "declarative-pipelines",
+  "description": "Serverless Delta Live Tables pipelines for reliable incremental ETL and streaming data transformation",
+  "category": "data-platform",
+  "ai_dev_kit": {
+    "required_tools": ["create_or_update_pipeline", "get_pipeline", "start_update"],
+    "required_skills": ["databricks-spark-declarative-pipelines"]
+  },
+  "env_vars": [
+    { "key": "DLT_PIPELINE_ID", "description": "Delta Live Tables pipeline ID", "example": "01ef1234-abcd-5678-efgh-ijklmnopqrst" }
+  ],
+  "app_dependencies": { "python": [], "npm": [] },
+  "requires": ["sql-warehouse"],
+  "auto_include_with": []
+}

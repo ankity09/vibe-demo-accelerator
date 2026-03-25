@@ -1,0 +1,16 @@
+{
+  "name": "Genie Space",
+  "id": "genie",
+  "description": "Natural language SQL queries over Delta Lake tables via Databricks Genie",
+  "category": "ai",
+  "ai_dev_kit": {
+    "required_tools": ["create_or_update_genie", "ask_genie"],
+    "required_skills": ["databricks-genie"]
+  },
+  "env_vars": [
+    { "key": "GENIE_SPACE_ID", "description": "Genie Space ID (from workspace URL after creation)", "example": "01ef1234abcd5678" }
+  ],
+  "app_dependencies": { "python": [], "npm": [] },
+  "requires": ["sql-warehouse"],
+  "auto_include_with": ["mas"]
+}

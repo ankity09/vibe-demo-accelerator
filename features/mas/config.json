@@ -1,0 +1,16 @@
+{
+  "name": "Multi-Agent Supervisor (MAS)",
+  "id": "mas",
+  "description": "Orchestrates multiple AI sub-agents (Genie, Knowledge Assistant, MCP, UC functions) via Agent Bricks",
+  "category": "ai",
+  "ai_dev_kit": {
+    "required_tools": ["manage_mas"],
+    "required_skills": ["databricks-agent-bricks"]
+  },
+  "env_vars": [
+    { "key": "MAS_TILE_ID", "description": "First 8 characters of the MAS tile UUID (used to build the serving endpoint name)", "example": "a1b2c3d4" }
+  ],
+  "app_dependencies": { "python": [], "npm": [] },
+  "requires": ["sql-warehouse"],
+  "auto_include_with": ["lakebase"]
+}

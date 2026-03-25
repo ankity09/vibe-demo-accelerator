@@ -1,0 +1,17 @@
+{
+  "name": "Lakebase",
+  "id": "lakebase",
+  "description": "Serverless PostgreSQL-compatible OLTP database for real-time agent writes, operational state, and transactional workloads",
+  "category": "data-platform",
+  "ai_dev_kit": {
+    "required_tools": ["create_or_update_lakebase_database", "generate_lakebase_credential"],
+    "required_skills": ["databricks-lakebase-provisioned"]
+  },
+  "env_vars": [
+    { "key": "LAKEBASE_INSTANCE", "description": "Lakebase instance name (hyphens, not underscores)", "example": "my-demo-db" },
+    { "key": "LAKEBASE_DATABASE", "description": "PostgreSQL database name within the instance", "example": "my_demo_database" }
+  ],
+  "app_dependencies": { "python": ["psycopg2-binary"], "npm": [] },
+  "requires": [],
+  "auto_include_with": []
+}

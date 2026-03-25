@@ -1,0 +1,16 @@
+{
+  "name": "Workflows & Jobs",
+  "id": "workflows-jobs",
+  "description": "Orchestrate multi-task notebooks, Python scripts, and DLT pipelines on a schedule or triggered by events via Databricks Workflows",
+  "category": "operational",
+  "ai_dev_kit": {
+    "required_tools": ["manage_jobs", "manage_job_runs"],
+    "required_skills": ["databricks-jobs"]
+  },
+  "env_vars": [
+    { "key": "WORKFLOW_JOB_ID", "description": "Databricks Workflow/Job ID (from the Jobs UI)", "example": "123456789" }
+  ],
+  "app_dependencies": { "python": [], "npm": [] },
+  "requires": [],
+  "auto_include_with": []
+}

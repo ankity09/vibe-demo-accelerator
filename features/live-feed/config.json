@@ -1,0 +1,16 @@
+{
+  "name": "Live Feed",
+  "id": "live-feed",
+  "description": "Real-time streaming simulation engine that inserts time-series data into Delta Lake via the Statement Execution API",
+  "category": "data-platform",
+  "ai_dev_kit": {
+    "required_tools": [],
+    "required_skills": []
+  },
+  "env_vars": [
+    { "key": "LIVE_FEED_DURATION_SECONDS", "description": "How long the live feed background task runs before auto-stopping", "example": "300" }
+  ],
+  "app_dependencies": { "python": [], "npm": [] },
+  "requires": ["sql-warehouse"],
+  "auto_include_with": []
+}

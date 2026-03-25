@@ -1,0 +1,16 @@
+{
+  "name": "AI/BI Dashboard",
+  "id": "aibi-dashboard",
+  "description": "Embedded Databricks AI/BI dashboards with natural language edit and auto-generated visualizations over Delta Lake",
+  "category": "ai",
+  "ai_dev_kit": {
+    "required_tools": ["create_or_update_dashboard", "publish_dashboard"],
+    "required_skills": ["databricks-aibi-dashboards"]
+  },
+  "env_vars": [
+    { "key": "AIBI_DASHBOARD_ID", "description": "AI/BI Dashboard ID (from workspace URL)", "example": "01ef1234abcd5678efghijklmnopqrst" }
+  ],
+  "app_dependencies": { "python": [], "npm": [] },
+  "requires": ["sql-warehouse"],
+  "auto_include_with": []
+}

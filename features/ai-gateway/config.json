@@ -1,0 +1,16 @@
+{
+  "name": "AI Gateway",
+  "id": "ai-gateway",
+  "description": "Centralized governance layer for LLM access — rate limits, guardrails, cost tracking, and PII redaction across all serving endpoints",
+  "category": "ai",
+  "ai_dev_kit": {
+    "required_tools": ["list_serving_endpoints"],
+    "required_skills": ["databricks-model-serving"]
+  },
+  "env_vars": [
+    { "key": "AI_GATEWAY_ROUTE_NAME", "description": "AI Gateway route name (configured in Model Serving UI)", "example": "my-demo-gateway-route" }
+  ],
+  "app_dependencies": { "python": [], "npm": [] },
+  "requires": [],
+  "auto_include_with": ["foundation-model-api"]
+}

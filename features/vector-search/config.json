@@ -1,0 +1,17 @@
+{
+  "name": "Vector Search",
+  "id": "vector-search",
+  "description": "Semantic similarity search over Delta Lake tables using Databricks Vector Search endpoints and indexes",
+  "category": "ai",
+  "ai_dev_kit": {
+    "required_tools": ["create_or_update_vs_endpoint", "create_or_update_vs_index", "query_vs_index"],
+    "required_skills": ["databricks-vector-search"]
+  },
+  "env_vars": [
+    { "key": "VS_ENDPOINT_NAME", "description": "Vector Search endpoint name", "example": "my-demo-vs-endpoint" },
+    { "key": "VS_INDEX_NAME", "description": "Fully qualified Vector Search index name (catalog.schema.index)", "example": "my_catalog.my_schema.docs_index" }
+  ],
+  "app_dependencies": { "python": ["databricks-vectorsearch"], "npm": [] },
+  "requires": ["sql-warehouse"],
+  "auto_include_with": ["knowledge-assistant"]
+}

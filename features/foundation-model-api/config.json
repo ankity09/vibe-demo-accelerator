@@ -1,0 +1,16 @@
+{
+  "name": "Foundation Model API",
+  "id": "foundation-model-api",
+  "description": "Pay-per-token access to hosted LLMs (Llama, DBRX, Mixtral) via the Databricks serving endpoint API",
+  "category": "ai",
+  "ai_dev_kit": {
+    "required_tools": ["query_serving_endpoint"],
+    "required_skills": ["databricks-model-serving"]
+  },
+  "env_vars": [
+    { "key": "FMAPI_ENDPOINT", "description": "Serving endpoint name for the foundation model (e.g. databricks-meta-llama-3-3-70b-instruct)", "example": "databricks-meta-llama-3-3-70b-instruct" }
+  ],
+  "app_dependencies": { "python": ["openai"], "npm": [] },
+  "requires": [],
+  "auto_include_with": []
+}

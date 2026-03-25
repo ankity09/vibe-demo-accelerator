@@ -1,0 +1,16 @@
+{
+  "name": "Model Serving",
+  "id": "model-serving",
+  "description": "Deploy and serve custom ML models (scikit-learn, PyTorch, MLflow) via Databricks Model Serving endpoints",
+  "category": "ml",
+  "ai_dev_kit": {
+    "required_tools": ["query_serving_endpoint", "get_serving_endpoint_status"],
+    "required_skills": ["databricks-model-serving"]
+  },
+  "env_vars": [
+    { "key": "MODEL_ENDPOINT_NAME", "description": "Name of the custom model serving endpoint", "example": "my-demo-risk-scorer" }
+  ],
+  "app_dependencies": { "python": [], "npm": [] },
+  "requires": [],
+  "auto_include_with": []
+}

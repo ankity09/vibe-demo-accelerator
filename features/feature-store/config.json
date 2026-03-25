@@ -1,0 +1,16 @@
+{
+  "name": "Feature Store",
+  "id": "feature-store",
+  "description": "Centralized, versioned ML feature tables in Unity Catalog for training and online serving",
+  "category": "ml",
+  "ai_dev_kit": {
+    "required_tools": ["manage_uc_objects"],
+    "required_skills": ["databricks-unity-catalog"]
+  },
+  "env_vars": [
+    { "key": "FEATURE_TABLE_NAME", "description": "Fully qualified feature table name (catalog.schema.table)", "example": "my_catalog.my_schema.entity_features" }
+  ],
+  "app_dependencies": { "python": ["databricks-feature-engineering"], "npm": [] },
+  "requires": ["sql-warehouse"],
+  "auto_include_with": ["model-serving"]
+}
