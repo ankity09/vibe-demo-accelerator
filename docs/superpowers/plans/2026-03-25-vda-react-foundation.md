@@ -25,7 +25,9 @@
 | `app/frontend/vite.config.ts` | Dev server, proxy, build config |
 | `app/frontend/tailwind.config.ts` | VDA theme tokens mapped to Tailwind |
 | `app/frontend/tsconfig.json` | TypeScript strict mode config |
+| `app/frontend/tsconfig.node.json` | TypeScript config for Vite config file |
 | `app/frontend/postcss.config.js` | PostCSS with Tailwind + autoprefixer |
+| `app/frontend/.gitignore` | Ignore node_modules/ and dist/ |
 | `app/frontend/src/main.tsx` | React root, router, theme init |
 | `app/frontend/src/App.tsx` | AppShell + route config array |
 | `app/frontend/src/demo-config.ts` | Placeholder demo config (vibe-generated per demo) |
@@ -97,7 +99,15 @@
 - Create: `app/frontend/src/vite-env.d.ts`
 - Create: `app/frontend/src/main.tsx`
 
-- [ ] **Step 1: Scaffold Vite React-TS project**
+- [ ] **Step 1: Create .gitignore first (before npm install)**
+
+Write `app/frontend/.gitignore`:
+```
+node_modules/
+dist/
+```
+
+- [ ] **Step 2: Scaffold Vite React-TS project**
 
 Run from project root. Do NOT use `npm create vite` (it creates a new directory). Instead, manually create the files:
 
@@ -179,7 +189,22 @@ Write `app/frontend/tsconfig.json`:
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}
+```
+
+Write `app/frontend/tsconfig.node.json`:
+```json
+{
+  "compilerOptions": {
+    "composite": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true
+  },
+  "include": ["vite.config.ts"]
 }
 ```
 
@@ -651,18 +676,15 @@ from backend.core import run_pg_query, write_pg, _get_mas_auth
 
 Use `router = APIRouter()` — it will be mounted at `/api` prefix in `main.py`.
 
-- [ ] **Step 3: Extract workflow + exception + briefing routes**
+- [ ] **Step 3: Extract workflow routes (generic only)**
 
 Create `app/backend/routes/workflows.py`. Move from `main.py`:
 - `GET /api/agent-overview` → `@router.get("/agent-overview")`
 - `GET /api/workflows/{workflow_id}` → `@router.get("/workflows/{workflow_id}")`
 - `PATCH /api/workflows/{workflow_id}` → `@router.patch("/workflows/{workflow_id}")`
-- `GET /api/exceptions` → `@router.get("/exceptions")`
-- `POST /api/exceptions` → `@router.post("/exceptions")`
-- `PATCH /api/exceptions/{exception_id}` → `@router.patch("/exceptions/{exception_id}")`
-- `GET /api/briefing` → `@router.get("/briefing")`
-- `GET /api/briefing/stream` → `@router.get("/briefing/stream")`
 - `_enrich_workflow()` helper
+
+**Do NOT extract** exceptions, briefing, or architecture endpoints — those are domain-specific and stay in `main.py` for now (they move to `routes/domain.py` in Plan 2 when the feature system is built).
 
 - [ ] **Step 4: Slim main.py**
 
@@ -1059,7 +1081,7 @@ cd app/frontend && npm install leaflet react-leaflet && npm install -D @types/le
 
 - [ ] **Step 2: Implement GeoView**
 
-Write `GeoView.tsx` per spec: wraps react-leaflet's `MapContainer` (renamed to avoid collision). Renders markers, animated route lines, and optional heatmap layer. Handles the tab-switch invalidation issue (gotcha #50) by calling `map.invalidateSize()` via a `useEffect` on visibility.
+Write `GeoView.tsx` per spec: wraps react-leaflet's `MapContainer` (renamed to avoid collision). **IMPORTANT:** Import Leaflet CSS at the top of the file: `import 'leaflet/dist/leaflet.css'` — without this, markers and controls are invisible. Renders markers, animated route lines, and optional heatmap layer. Handles the tab-switch invalidation issue (gotcha #50) by calling `map.invalidateSize()` via a `useEffect` on visibility.
 
 Key implementation:
 - Use `useMap()` inside a child component to access the map instance
@@ -1110,7 +1132,7 @@ git add app/frontend/src/components/ui/
 git commit -m "feat: add shadcn/ui primitive components styled with VDA theme tokens"
 ```
 
-**Note:** This task should be done early (before the compound components that depend on them). In practice, the implementing agent should do this task before Tasks 10-17. The plan lists it here for logical grouping but the `subagent-driven-development` skill should reorder if needed.
+**CRITICAL DEPENDENCY:** This task MUST be completed before Tasks 10-17. The VDA compound components import Button, Card, Dialog, Badge, etc. from `components/ui/`. Attempting to build any compound component before this task will cause TypeScript errors. Execute this task immediately after Task 5 (useApi hook).
 
 ---
 
@@ -1169,19 +1191,19 @@ git commit -m "feat: wire ThemeToggle into AppShell and add sample dashboard con
 - Delete: `app/frontend/src/index.html` (the 157KB monolith)
 - Modify: `app/frontend/.gitignore` (add `dist/` and `node_modules/`)
 
-- [ ] **Step 1: Create .gitignore**
+- [ ] **Step 1: Verify old frontend path and remove**
 
-Write `app/frontend/.gitignore`:
+First confirm the actual path of the 157KB monolith:
+```bash
+ls -lh app/frontend/src/index.html
 ```
-node_modules/
-dist/
-```
 
-- [ ] **Step 2: Remove old frontend**
-
+Then remove it:
 ```bash
 rm app/frontend/src/index.html
 ```
+
+If the file is at a different path (e.g., `app/frontend/index.html`), adjust accordingly. Do NOT delete the new Vite `app/frontend/index.html` entry point.
 
 - [ ] **Step 3: Final type check + build**
 
@@ -1227,9 +1249,9 @@ The tasks are numbered for reference but some have implicit dependencies:
 4. **Tasks 10-17 (components)** can run in parallel after Tasks 3, 4, 5, 9, and 18 are complete.
 5. **Tasks 19-20** must be last.
 
-Recommended execution order:
+**Required execution order:**
 ```
-Task 1 → Task 2 → Task 3 → Task 4 → Task 5 → Task 18 (shadcn primitives)
+Task 1 → Task 2 → Task 3 → Task 4 → Task 5 → Task 18 (shadcn — MUST be before components)
                                                   ↓
 Task 8 (backend, parallel) ────────────────→ Task 6 → Task 7 → Task 9
                                                   ↓
@@ -1237,3 +1259,10 @@ Task 8 (backend, parallel) ────────────────→ T
                                                   ↓
                                          Task 19 → Task 20
 ```
+
+**Hard dependencies:**
+- Task 18 (shadcn/ui primitives) MUST complete before any of Tasks 10-17
+- Tasks 1-7 are strictly sequential
+- Task 8 (backend extraction) is independent and can run in parallel with frontend tasks
+- Tasks 10-17 can run in parallel with each other (after Task 18)
+- Tasks 19-20 must be last
