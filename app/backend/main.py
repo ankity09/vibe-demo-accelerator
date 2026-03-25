@@ -11,9 +11,7 @@ import logging
 import os
 import re
 import time as _time
-import uuid as _uuid
 from contextlib import asynccontextmanager
-from datetime import date
 from pathlib import Path
 
 import httpx
@@ -26,102 +24,12 @@ from databricks.sdk import WorkspaceClient
 
 from backend.core.lakebase import _init_pg_pool
 from backend.core.health import health_router
-from backend.core.streaming import stream_mas_chat, _sse_keepalive, get_mcp_pending, clear_mcp_pending
 from backend.core import run_query, run_pg_query, write_pg, _safe, _get_mas_auth
+from backend.routes.chat import router as chat_router, _chat_history, _load_chat_history
+from backend.routes.workflows import router as workflow_router
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app")
-
-# ─── Chat history (in-memory, per-process) ────────────────────────────────
-_chat_history: list[dict] = []
-
-# ─── Chat Persistence (Lakebase-backed session & message history) ─────────
-# Requires chat_sessions and chat_messages tables (see lakebase/core_schema.sql).
-# Falls back gracefully if tables don't exist yet.
-
-_chat_session_id: str | None = None
-
-
-def _ensure_chat_session() -> str:
-    global _chat_session_id
-    if _chat_session_id:
-        return _chat_session_id
-    try:
-        rows = run_pg_query("SELECT session_id FROM chat_sessions ORDER BY updated_at DESC LIMIT 1")
-        if rows:
-            _chat_session_id = rows[0]["session_id"]
-            return _chat_session_id
-    except Exception:
-        pass
-    return _new_chat_session()
-
-
-def _new_chat_session() -> str:
-    global _chat_session_id
-    sid = f"chat-{date.today().isoformat()}-{_uuid.uuid4().hex[:6]}"
-    try:
-        write_pg("INSERT INTO chat_sessions (session_id) VALUES (%s) ON CONFLICT DO NOTHING", (sid,))
-    except Exception as e:
-        log.warning("Could not create chat session: %s", e)
-    _chat_session_id = sid
-    return sid
-
-
-def _save_chat_message(role: str, content: str):
-    sid = _ensure_chat_session()
-    try:
-        write_pg(
-            "INSERT INTO chat_messages (session_id, role, content) VALUES (%s, %s, %s)",
-            (sid, role, content),
-        )
-        if role == "user":
-            title = content[:100] + ("..." if len(content) > 100 else "")
-            write_pg(
-                "UPDATE chat_sessions SET updated_at = NOW(), title = COALESCE(NULLIF(title, 'New conversation'), %s) WHERE session_id = %s",
-                (title, sid),
-            )
-        else:
-            write_pg("UPDATE chat_sessions SET updated_at = NOW() WHERE session_id = %s", (sid,))
-    except Exception as e:
-        log.warning("Could not save chat message: %s", e)
-
-
-def _load_chat_history() -> list[dict]:
-    sid = _ensure_chat_session()
-    try:
-        rows = run_pg_query(
-            "SELECT role, content FROM chat_messages WHERE session_id = %s ORDER BY created_at ASC",
-            (sid,),
-        )
-        return [{"role": r["role"], "content": r["content"]} for r in rows]
-    except Exception:
-        return []
-
-
-def _clear_chat_history():
-    global _chat_session_id
-    if _chat_session_id:
-        try:
-            write_pg("DELETE FROM chat_sessions WHERE session_id = %s", (_chat_session_id,))
-        except Exception:
-            pass
-    _chat_session_id = None
-
-# ─── Action card config for your domain ───────────────────────────────────
-# Override this list to detect entities created by the MAS agent during chat.
-# Each entry maps a Lakebase table to an action card in the chat UI.
-#
-# ACTION_CARD_TABLES = [
-#     {
-#         "table": "work_orders",
-#         "card_type": "work_order",
-#         "id_col": "work_order_id",
-#         "title_template": "Work Order {wo_number}",
-#         "actions": ["approve", "dismiss"],
-#         "detail_cols": {"asset": "asset_name", "priority": "priority", "status": "status"},
-#     },
-# ]
-ACTION_CARD_TABLES: list[dict] = []
 
 
 # ─── Lifespan ─────────────────────────────────────────────────────────────
@@ -148,120 +56,11 @@ app = FastAPI(title="Demo App", lifespan=lifespan)
 # ─── Health endpoint ──────────────────────────────────────────────────────
 app.include_router(health_router)
 
+# ─── Chat routes (POST /api/chat, GET /api/chat/history, POST /api/chat/clear) ───
+app.include_router(chat_router, prefix="/api")
 
-# ─── Chat endpoint (MAS streaming) ───────────────────────────────────────
-
-@app.post("/api/chat")
-async def chat(request: Request, body: dict):
-    """Streaming SSE endpoint for MAS chat with MCP approval flow.
-
-    Normal message:   {"message": "Create a PO...", "auto_approve_mcp": true}
-    MCP approval:     {"approve_mcp": true}  or  {"approve_mcp": false}
-    """
-    approve_mcp = body.get("approve_mcp", None)
-    auto_approve_mcp = body.get("auto_approve_mcp", False)
-    message = body.get("message", "").strip()
-    context = body.get("context", "").strip()
-
-    # Extract OBO token for MAS calls (required for MCP tools, auto-refreshes on expiry)
-    user_token = request.headers.get("x-forwarded-access-token", "")
-
-    # Determine starting state
-    mcp_state = get_mcp_pending()
-    if approve_mcp is not None and mcp_state:
-        # Continuing from MCP approval — build input from saved state
-        log.info("MCP APPROVAL received: approve=%s", approve_mcp)
-        all_accumulated = mcp_state["accumulated"]
-        tools_called = mcp_state["tools_called"]
-        lakebase_called = mcp_state["lakebase_called"]
-        approval_round = mcp_state["round"]
-
-        for req in mcp_state["pending"]:
-            all_accumulated.append({
-                "type": "mcp_approval_response",
-                "id": f"approval-{approval_round}-{req.get('id', '')}",
-                "approval_request_id": req.get("id", ""),
-                "approve": bool(approve_mcp),
-            })
-        start_messages = list(_chat_history[-10:]) + all_accumulated
-        clear_mcp_pending()
-    elif approve_mcp is not None and not mcp_state:
-        # Stale approval — no pending state
-        async def stale():
-            yield f"data: {json.dumps({'type': 'error', 'text': 'No pending MCP approval.'})}\n\n"
-            yield "data: [DONE]\n\n"
-        return StreamingResponse(stale(), media_type="text/event-stream")
-    else:
-        # New user message
-        if not message:
-            raise HTTPException(400, "Empty message")
-        full_message = f"Context: {context}\n\nQuestion: {message}" if context else message
-        _chat_history.append({"role": "user", "content": full_message})
-        try:
-            _save_chat_message("user", full_message)
-        except Exception:
-            pass
-        start_messages = list(_chat_history[-10:])
-        all_accumulated = []
-        tools_called = set()
-        lakebase_called = False
-        approval_round = 0
-
-    async def event_stream():
-        final_text = ""
-        async for chunk in stream_mas_chat(
-            message, _chat_history, ACTION_CARD_TABLES,
-            user_token=user_token,
-            auto_approve_mcp=auto_approve_mcp,
-            start_messages=start_messages,
-            initial_accumulated=all_accumulated,
-            initial_tools_called=tools_called,
-            initial_lakebase_called=lakebase_called,
-            initial_approval_round=approval_round,
-        ):
-            yield chunk
-            # Track final text for chat history
-            if chunk.startswith("data: ") and chunk.strip() != "data: [DONE]":
-                try:
-                    evt = json.loads(chunk[6:])
-                    if evt.get("type") == "delta":
-                        final_text += evt.get("text", "")
-                except (json.JSONDecodeError, KeyError):
-                    pass
-        # Save final response to chat history
-        if final_text:
-            _chat_history.append({"role": "assistant", "content": final_text})
-            try:
-                _save_chat_message("assistant", final_text)
-            except Exception:
-                pass
-
-    return StreamingResponse(
-        _sse_keepalive(event_stream()),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
-    )
-
-
-# ─── Chat History & Clear Endpoints ──────────────────────────────────────
-
-@app.get("/api/chat/history")
-async def get_chat_history():
-    """Return all messages from the current chat session."""
-    messages = await asyncio.to_thread(_load_chat_history)
-    return {"session_id": _chat_session_id or "", "messages": messages}
-
-
-@app.post("/api/chat/clear")
-async def clear_chat():
-    """Clear chat history (both in-memory and Lakebase)."""
-    _chat_history.clear()
-    await asyncio.to_thread(_clear_chat_history)
-    return {"status": "cleared"}
+# ─── Workflow routes (GET /api/agent-overview, PATCH /api/workflows/{id}) ────────
+app.include_router(workflow_router, prefix="/api")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1121,84 +920,8 @@ async def get_architecture_table_data(
         }
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Agent Workflows — powers the Agent Workflows page
-# ═══════════════════════════════════════════════════════════════════════════
-
-@app.get("/api/agent-overview")
-async def get_agent_overview():
-    """Return KPIs, workflows, and recent agent actions for the Agent page."""
-
-    def _cnt(result):
-        """Safely extract count from a query result, handling exceptions (Gotcha #41)."""
-        if isinstance(result, Exception):
-            log.warning("Agent overview sub-query failed: %s", result)
-            return 0
-        return (result or [{}])[0].get("cnt", 0)
-
-    def _rows(result, default=None):
-        """Safely extract rows from a query result, handling exceptions (Gotcha #41)."""
-        if isinstance(result, Exception):
-            log.warning("Agent overview sub-query failed: %s", result)
-            return default if default is not None else []
-        return result or (default if default is not None else [])
-
-    try:
-        q_pending, q_in_progress, q_completed_7d, q_actions_24h, q_workflows, q_actions, q_open_exceptions = await asyncio.gather(
-            asyncio.to_thread(run_pg_query, "SELECT count(*) as cnt FROM workflows WHERE status = 'pending_approval'"),
-            asyncio.to_thread(run_pg_query, "SELECT count(*) as cnt FROM workflows WHERE status = 'in_progress'"),
-            asyncio.to_thread(run_pg_query, "SELECT count(*) as cnt FROM workflows WHERE status = 'approved' AND completed_at >= NOW() - INTERVAL '7 days'"),
-            asyncio.to_thread(run_pg_query, "SELECT count(*) as cnt FROM agent_actions WHERE created_at >= NOW() - INTERVAL '24 hours'"),
-            asyncio.to_thread(run_pg_query, "SELECT * FROM workflows ORDER BY created_at DESC LIMIT 50"),
-            asyncio.to_thread(run_pg_query, "SELECT * FROM agent_actions ORDER BY created_at DESC LIMIT 20"),
-            asyncio.to_thread(run_pg_query, "SELECT count(*) as cnt FROM exceptions WHERE status = 'open'"),
-            return_exceptions=True,  # Gotcha #41: don't let one failure kill all queries
-        )
-        workflows = [_enrich_workflow(wf) for wf in _rows(q_workflows)]
-        return {
-            "kpis": {
-                "pending_approval": _cnt(q_pending),
-                "in_progress": _cnt(q_in_progress),
-                "completed_7d": _cnt(q_completed_7d),
-                "agent_actions_24h": _cnt(q_actions_24h),
-                "open_exceptions": _cnt(q_open_exceptions),
-            },
-            "workflows": workflows,
-            "agent_actions_recent": _rows(q_actions),
-        }
-    except Exception as e:
-        log.warning("Agent overview query failed (Lakebase tables may not exist): %s", e)
-        return {"kpis": {}, "workflows": [], "agent_actions_recent": []}
-
-
-@app.get("/api/workflows/{workflow_id}")
-async def get_workflow(workflow_id: int):
-    """Return a single workflow by ID (used by the workflow detail modal)."""
-    rows = await asyncio.to_thread(
-        run_pg_query,
-        "SELECT * FROM workflows WHERE workflow_id = %s",
-        (workflow_id,),
-    )
-    if not rows:
-        raise HTTPException(404, f"Workflow {workflow_id} not found")
-    return rows[0]
-
-
-@app.patch("/api/workflows/{workflow_id}")
-async def update_workflow(workflow_id: int, body: dict):
-    """Update a workflow's status (approve/dismiss)."""
-    new_status = body.get("status", "")
-    if new_status not in ("approved", "dismissed"):
-        raise HTTPException(400, "Status must be 'approved' or 'dismissed'")
-    completed = "NOW()" if new_status in ("approved", "dismissed") else "NULL"
-    result = await asyncio.to_thread(
-        write_pg,
-        f"UPDATE workflows SET status = %s, completed_at = {completed} WHERE workflow_id = %s RETURNING *",
-        (new_status, workflow_id),
-    )
-    if not result:
-        raise HTTPException(404, f"Workflow {workflow_id} not found")
-    return result
+# Agent Workflows routes have been extracted to backend/routes/workflows.py
+# and mounted above via app.include_router(workflow_router, prefix="/api")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1420,60 +1143,6 @@ async def stream_briefing():
     return StreamingResponse(_stream(), media_type="text/event-stream")
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Workflow Enrichment (Nice-to-Have #14) — reasoning chains, agent flows
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _enrich_workflow(wf: dict) -> dict:
-    """Enrich a workflow with headline, enriched_summary, reasoning_chain, and agent_flow.
-
-    This is a SKELETON function — domain-specific labels and templates are marked
-    with TODO(vibe) comments for vibe to fill during demo creation.
-    """
-    wf = dict(wf)  # don't mutate original
-
-    # ── Headline ──
-    if not wf.get("headline"):
-        # TODO(vibe): Add workflow_type -> headline templates for your domain
-        # Example: "reorder_po": f"Reorder PO for {wf.get('entity_id', 'unknown')}"
-        TYPE_HEADLINES = {}
-        wtype = wf.get("workflow_type", "workflow")
-        entity = f"{wf.get('entity_type', '')} {wf.get('entity_id', '')}".strip()
-        wf["headline"] = TYPE_HEADLINES.get(
-            wtype,
-            f"{wtype.replace('_', ' ').title()}: {entity}" if entity else wtype.replace("_", " ").title(),
-        )
-
-    # ── Enriched Summary ──
-    if not wf.get("enriched_summary"):
-        summary = wf.get("summary", "")
-        # TODO(vibe): Add domain-specific narrative generation
-        wf["enriched_summary"] = summary
-
-    # ── Reasoning Chain ──
-    chain = wf.get("reasoning_chain")
-    if isinstance(chain, str):
-        try:
-            chain = json.loads(chain)
-        except (json.JSONDecodeError, TypeError):
-            chain = []
-    if not chain or not isinstance(chain, list):
-        # Build a template chain from workflow metadata
-        chain = [
-            {"step": 1, "tool": "monitor", "label": "Trigger detected", "output": wf.get("trigger_source", "monitor"), "status": "completed"},
-            {"step": 2, "tool": "analyze", "label": "Analyzing situation", "output": wf.get("summary", "")[:100], "status": "completed"},
-        ]
-        if wf.get("entity_type"):
-            chain.append({"step": 3, "tool": "action", "label": f"Action on {wf.get('entity_type', '')}", "output": wf.get("entity_id", ""), "status": "completed"})
-    wf["reasoning_chain"] = chain
-
-    # ── Agent Flow ──
-    if not wf.get("agent_flow"):
-        # TODO(vibe): Customize agent flow data for your domain
-        wf["agent_flow"] = None  # Frontend falls back to buildDomainAgentFlow()
-
-    return wf
-
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1497,13 +1166,20 @@ def _enrich_workflow(wf: dict) -> dict:
 
 
 # ─── Frontend Serving ─────────────────────────────────────────────────────
+# Prefer the Vite production build (frontend/dist) when it exists.
+# Falls back to the legacy static source directory for local dev without a build.
 
-app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "..", "frontend", "src")), name="static")
+_frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+_frontend_src = os.path.join(os.path.dirname(__file__), "..", "frontend", "src")
 
+if os.path.isdir(_frontend_dist):
+    app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="static")
+else:
+    app.mount("/static", StaticFiles(directory=_frontend_src), name="static")
 
-@app.get("/{full_path:path}")
-async def serve_spa(full_path: str):
-    return FileResponse(
-        os.path.join(os.path.dirname(__file__), "..", "frontend", "src", "index.html"),
-        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
-    )
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        return FileResponse(
+            os.path.join(_frontend_src, "index.html"),
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
+        )
