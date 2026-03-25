@@ -2,7 +2,7 @@
 
 Reusable scaffold for building customer demos on Databricks. Clone this repo, tell vibe what you want, and have a deployed demo in 2-4 hours.
 
-**Architecture:** FastAPI backend + single-file HTML/JS frontend + Databricks Apps deployment.
+**Architecture:** FastAPI backend + React 18 + Vite frontend + Databricks Apps deployment.
 **Stack:** Delta Lake (analytics) + Lakebase/PostgreSQL (OLTP) + Lakebase MCP Server (agent writes) + MAS Agent Bricks (AI chat) + Genie Space (NL queries).
 **Compute:** All serverless — no classic clusters needed.
 
@@ -90,15 +90,24 @@ databricks current-user me --profile=<name>
 ### Layer 2: SKELETON (fill placeholders)
 - `app/app.yaml` — Deployment config with TODO placeholders
 - `app/backend/main.py` — App assembly, imports core, mounts routes
+- `app/frontend/` — React + Vite frontend project
+  - `src/components/vda/` — 12 compound VDA components (KpiGrid, DataTable, ChatPanel, WorkflowBoard, etc.)
+  - `src/components/ui/` — shadcn/ui primitives (Button, Card, Badge, Dialog, etc.)
+  - `src/layouts/` — AppShell + 3 layout variants (sidebar, topnav, dashboard-first)
+  - `src/hooks/` — useApi, useSSE, useTheme, useLiveFeed
+  - `src/stores/` — chatStore (Zustand)
+  - `src/styles/themes/` — 4 theme files (industrial, medical, corporate, custom)
+  - `src/pages/` — One TSX file per page/route
 - `lakebase/core_schema.sql` — 3 required tables (notes, agent_actions, workflows)
 - `lakebase/domain_schema.sql` — Your domain-specific tables
 - `notebooks/` — Schema setup, data generation, Lakebase seeding
 - `agent_bricks/` — MAS and KA config templates
 - `genie_spaces/` — Genie Space config template
+- `features/` — 14 Databricks feature modules (see Feature System section)
 
 ### Layer 3: CUSTOMER (vibe generates)
 - Domain-specific routes in `main.py`
-- Frontend pages and visualizations
+- React pages in `src/pages/` and entries in the routes array in `App.tsx`
 - Data model and generation scripts
 - Agent prompts and tool descriptions
 - Talk track and demo flow
@@ -184,10 +193,10 @@ app.include_router(create_streaming_router(engine))
 - Optional ZeroBus SDK integration for real-time streaming via Databricks ZeroBus
 - Simulation fallback for demos without ZeroBus endpoint (app-side INSERTs via Statement Execution API)
 
-**Frontend Components (in `<!-- STREAMING -->` blocks):**
-- Telemetry Status Bar: KPI tiles + "Start Live Feed" toggle button
-- Auto-refresh polling (15s interval) when feed is active
-- All wrapped in clearly marked comment blocks for easy customization
+**Frontend Components (`src/components/vda/LiveFeedBar.tsx`):**
+- `<LiveFeedBar />` — Telemetry Status Bar: KPI tiles + "Start Live Feed" toggle button
+- Uses `useLiveFeed` hook for polling (15s interval) when feed is active
+- Drop into any page layout — the hook wires automatically to `/api/streaming/live-feed-status`
 
 ## Backend Patterns
 
@@ -247,56 +256,103 @@ async def create_item(body: ItemCreate):
 
 ## Frontend Patterns
 
-### SSE Streaming Protocol
-The chat UI handles these SSE event types (all implemented in `sendChat()`):
-- `thinking` — Reasoning text from intermediate rounds (render as collapsible block above answer)
-- `delta` — Text chunk from the final answer (stream into the answer div)
-- `tool_call` — Sub-agent invoked (show as step indicator)
-- `agent_switch` — MAS switched sub-agents (update step)
-- `sub_result` — Data returned from sub-agent (show as completed step)
-- `action_card` — Entity created/referenced (render interactive card)
-- `suggested_actions` — Follow-up prompts (render as clickable buttons)
-- `error` — Error message (display in red)
-- `session_expired` — OBO token expired; frontend should auto-reload (see Gotcha #29)
-- `[DONE]` — Stream complete
+### React Component Imports and Composition
+The frontend uses TypeScript React components. Import VDA compound components and shadcn/ui primitives:
+```tsx
+import { KpiGrid, DataTable, ChatPanel } from '@/components/vda';
+import { Button, Card, Badge } from '@/components/ui';
+import { cn } from '@/lib/utils';
 
-**Phase tracking:** The backend buffers text per MAS round. Non-final rounds (with pending MCP approvals) emit text as `thinking`. The final round emits text as `delta`. The frontend renders `thinking` in a collapsible reasoning block and `delta` as the clean answer. `renderThinkingBlock()` splits reasoning into steps at action-phrase boundaries.
+interface MyPageProps {
+  title: string;
+}
+
+export function MyPage({ title }: MyPageProps) {
+  return (
+    <div className={cn('p-6 space-y-6', 'bg-surface-base')}>
+      <h1 className="text-content-primary text-2xl font-bold">{title}</h1>
+      <KpiGrid metrics={metrics} />
+    </div>
+  );
+}
+```
+
+### Data Fetching with useApi
+Use the `useApi` hook for all data loading. It wraps `axios` with base URL from env and returns `{data, loading, error, refetch}`:
+```tsx
+import { useApi } from '@/hooks/useApi';
+
+export function InventoryPage() {
+  const { data, loading } = useApi<InventoryRow[]>('/api/inventory');
+  if (loading) return <SkeletonTable />;
+  return <DataTable rows={data ?? []} />;
+}
+```
+
+### SSE Streaming with useSSE + useChatStore
+Chat streaming uses the `useSSE` hook and Zustand `chatStore`. The store handles all SSE event types:
+```tsx
+import { useChatStore } from '@/stores/chatStore';
+
+// SSE event types emitted by the backend:
+// thinking — reasoning text (collapsible block)
+// delta    — final answer text chunk (streamed)
+// tool_call / agent_switch / sub_result — step indicators
+// action_card — entity created/referenced (interactive card)
+// suggested_actions — follow-up prompts (clickable buttons)
+// error    — display in red
+// session_expired — auto-reload page (see Gotcha #29)
+// [DONE]   — stream complete
+```
+
+**Phase tracking:** Non-final rounds (with pending MCP approvals) emit text as `thinking`. The final round emits `delta`. The frontend renders `thinking` in a collapsible reasoning block and `delta` as the clean answer.
 
 ### Action Cards
 Configure `ACTION_CARD_TABLES` in `main.py` to auto-detect entities created during chat. Each card gets approve/dismiss buttons that PATCH the entity status via your API.
 
-### CSS Variables for Theming
-Override these in `:root` to rebrand. Variables use semantic names (`--primary`, `--accent`) not color names:
-```css
-:root {
-  --primary: #1a2332;     /* Main dark — sidebar, headers */
-  --accent: #f59e0b;      /* CTA / highlight color */
-  --green: #10b981;       /* Success */
-  --red: #ef4444;         /* Error/critical */
-  --blue: #3b82f6;        /* Info */
-}
+### Theme Tokens — Tailwind Namespace
+The VDA uses semantic Tailwind class namespaces. Do NOT use raw hex colors or generic Tailwind palette colors:
+
+| Namespace | Usage |
+|-----------|-------|
+| `bg-surface-base` | Page background |
+| `bg-surface-raised` | Cards, panels |
+| `bg-surface-overlay` | Modals, dropdowns |
+| `text-content-primary` | Headings, body text |
+| `text-content-secondary` | Labels, captions |
+| `text-content-muted` | Disabled, placeholder |
+| `border-border` | All borders |
+| `accent` | CTA buttons, highlights, active states |
+
+Override the active theme by editing `src/styles/themes/<theme>.css`. Four built-in themes: `industrial` (navy/amber), `medical` (white/teal), `corporate` (navy/blue), `custom` (blank template).
+
+### Conditional Classes with cn()
+```tsx
+import { cn } from '@/lib/utils';
+
+<div className={cn(
+  'rounded-lg p-4 border border-border',
+  isActive && 'bg-surface-raised',
+  isError && 'border-red-500 text-red-400',
+)} />
 ```
 
 ### Adding New Pages
-1. Add nav link in sidebar: `<a href="#" data-page="mypage">...</a>`
-2. Add page div: `<div id="page-mypage" class="page">...</div>`
-3. Add to PAGES array and PAGE_TITLES map in JS
-4. Add `loadMypage()` function and call it from `navigate()`
-5. Use `fetchApi()` to load data and render into the page div
+1. Create `app/frontend/src/pages/MyPage.tsx`
+2. Add one entry to the routes array in `App.tsx`:
+   ```tsx
+   { path: '/my-page', element: <MyPage />, label: 'My Page', icon: MyIcon }
+   ```
+3. Done — the nav (sidebar or topnav) updates automatically from the routes array.
 
-### formatAgentName() Mapping
-Customize this function to map MAS tool names to display labels:
-```javascript
-function formatAgentName(name) {
-  const shortName = name.includes('__') ? name.split('__').pop() : name;
-  const map = {
-    'my_data_space': 'Data Query',
-    'my_knowledge_base': 'Knowledge Base',
-    'my_calculator': 'Calculator Tool',
-    'mcp-lakebase-connection': 'Database (write)',
-  };
-  return map[shortName] || map[name] || shortName.replace(/[-_]/g, ' ');
-}
+### Agent Name Display Mapping
+Customize the `agentDisplayName` map in `src/lib/agentNames.ts` to map MAS tool names to display labels:
+```typescript
+export const agentDisplayName: Record<string, string> = {
+  'my_data_space': 'Data Query',
+  'my_knowledge_base': 'Knowledge Base',
+  'mcp-lakebase-connection': 'Database (write)',
+};
 ```
 
 ## Frontend Generation Flow
@@ -309,16 +365,44 @@ function formatAgentName(name) {
 4. **Additional pages** — Beyond AI Chat and Agent Workflows (included), what domain pages are needed? (e.g., inventory, shipments, patients, risk scores)
 
 **The template includes two starter pages that are already functional:**
-- **AI Chat** — Full SSE streaming with sub-agent step indicators, action cards, follow-up suggestions. Do NOT rebuild this — customize the suggested prompts, welcome card text, and `formatAgentName()` mapping.
-- **Agent Workflows** — Workflow cards with severity, status filters, centered modal with two-column layout (details + animated agent flow diagram), inline AI analysis. Backend endpoints `GET /api/agent-overview` and `PATCH /api/workflows/{id}` are built into `main.py`. Do NOT rebuild this — customize `DOMAIN_AGENTS`, `WORKFLOW_AGENTS`, and `TYPE_LABELS`.
+- **AI Chat** (`src/pages/ChatPage.tsx`) — Full SSE streaming with sub-agent step indicators, action cards, follow-up suggestions. Do NOT rebuild this — customize the suggested prompts, welcome card text, and `agentDisplayName` map in `src/lib/agentNames.ts`.
+- **Agent Workflows** (`src/pages/WorkflowsPage.tsx`) — Workflow cards with severity, status filters, centered modal with two-column layout (details + animated agent flow diagram), inline AI analysis. Backend endpoints `GET /api/agent-overview` and `PATCH /api/workflows/{id}` are built into `main.py`. Do NOT rebuild this — customize `DOMAIN_AGENTS`, `WORKFLOW_AGENTS`, and `TYPE_LABELS` in the page component.
 
-**The template layout (sidebar + topbar) is a minimal placeholder.** Replace it entirely based on the user's layout preference. The JS navigation system (`PAGES`, `PAGE_TITLES`, `navigate()`) supports any layout — just update the nav links and add page divs.
+**The AppShell layout in `src/layouts/` is the starting point.** Choose from three variants (sidebar, topnav, dashboard-first) by setting the `layout` prop. The routes array in `App.tsx` drives the nav automatically — just add page entries.
 
 **When generating new pages:**
-- Use the CSS component toolkit (`.kpi-row`, `.card`, `.grid-2`, `.badge-*`, `.btn-*`, `.filter-bar`, `table`, `.pill-*`) — these are layout-agnostic
-- Use `fetchApi()` for all data loading, `showSkeleton()` for loading states, `animateKPIs()` for entrance animations
-- Use `askAI(prompt)` to bridge any page to the chat (e.g., "Ask AI about this item")
-- Follow the Adding New Pages pattern above
+- Create a `src/pages/MyPage.tsx` React component with a TypeScript props interface
+- Use VDA compound components (`KpiGrid`, `DataTable`, `WorkflowBoard`, etc.) — they are layout-agnostic and theme-aware
+- Use `useApi()` for data loading, `<SkeletonTable />` / `<SkeletonKpi />` for loading states
+- Use `useChatStore().ask(prompt)` to bridge any page to the chat (e.g., "Ask AI about this item")
+- Follow the Adding New Pages pattern above (add to routes array in `App.tsx`)
+
+## Build & Dev Commands
+
+```bash
+# Frontend development
+cd app/frontend && npm install          # Install dependencies
+cd app/frontend && npm run dev          # Vite dev server with HMR (proxies /api to localhost:8000)
+cd app/frontend && npm run build        # Production build → app/frontend/dist/
+cd app/frontend && npx tsc --noEmit    # TypeScript check (must be zero errors before deploy)
+cd app/frontend && npm run lint        # ESLint check
+
+# Backend development
+pip install -r requirements.txt
+cd app && uvicorn backend.main:app --reload --port 8000
+
+# Full deployment via DABs
+python scripts/deploy.py --target <target>   # All steps
+databricks bundle deploy --target <target>   # Code-only redeploy
+```
+
+## Quality Checklist (before every commit)
+1. `cd app/frontend && npx tsc --noEmit` — zero TypeScript errors
+2. `cd app/frontend && npm run lint` — zero ESLint warnings
+3. `cd app/frontend && npm run build` — clean production build, no output warnings
+4. Visual check: does it look like a premium SaaS product?
+5. Responsive: works on 1920×1080, 1440×900, and tablet
+6. Dark theme: all surfaces use `bg-surface-*` / `text-content-*` tokens, no raw white backgrounds
 
 ## Data Model Convention
 
@@ -355,7 +439,8 @@ databricks database get-database-instance <name> --profile=<profile> -o json | j
 
 ### Phase D: App Deployment (do this LAST)
 12. **Fill app.yaml** — Set warehouse ID, catalog, schema, MAS tile ID (first 8 chars), Lakebase instance/db
-13. **Deploy app** — `databricks apps deploy <name> --source-code-path <path> --profile=<profile>`
+12a. **Build frontend** — `cd app/frontend && npm install && npm run build` — outputs to `app/frontend/dist/` which FastAPI serves as static files. Run `npx tsc --noEmit` first to catch TypeScript errors.
+13. **Deploy app** — `python scripts/deploy.py --target <target> --step deploy` (recommended) or `databricks apps deploy <name> --source-code-path <path> --profile=<profile>`
 14. **Register resources via API** — **CRITICAL: `app.yaml` resources are NOT automatically registered.** You MUST register them via the API, then redeploy:
 ```bash
 databricks apps update <app-name> --json '{
@@ -439,6 +524,56 @@ Steps (run in order by default):
 | Lakebase schema change | `python scripts/deploy.py --target <name> --step lakebase` |
 | After creating MAS/Genie | Update target YAML, then `--step template --step deploy --step resources` |
 | Quick redeploy (no DABs) | `python scripts/deploy.py --target <name> --step deploy --skip-dabs` |
+
+## Feature System
+
+The `features/` directory contains 14 self-contained Databricks feature modules. Each module represents a capability tile that can be wired into a demo with minimal configuration.
+
+### Structure of each feature
+```
+features/<feature-name>/
+├── config.json        # Feature metadata: id, name, description, tags, requires
+├── skill.md           # Instructions for vibe on how to wire this feature
+├── routes.py          # (optional) FastAPI router to include in main.py
+└── components/        # (optional) React components specific to this feature
+```
+
+### How features are selected
+During the `/new-demo` wizard, vibe asks which Databricks capabilities to showcase. The wizard reads `features/*/config.json` to build the options list. Each selected feature's `skill.md` is loaded into context so vibe knows exactly how to provision and wire it.
+
+**AI Dev Kit** (the wizard + provisioning layer) handles:
+- Creating the workspace resources (Genie Space, MAS, Lakebase instance, UC connections)
+- Running notebooks and seeding data for the selected features
+- Generating `targets/<workspace>.yml` with the right IDs
+
+**VDA** (this scaffold) handles:
+- Mounting the feature's `routes.py` into `main.py`
+- Rendering the feature's React components in the appropriate page
+- Passing the right config values from `app.yaml` env vars
+
+### Available features (14)
+| Feature ID | Description |
+|-----------|-------------|
+| `genie-space` | Natural language SQL queries via Genie |
+| `mas-chat` | Multi-agent AI chat with SSE streaming |
+| `lakebase-crud` | Lakebase CRUD via MCP tools |
+| `agent-workflows` | Workflow cards with AI analysis |
+| `live-feed` | Real-time streaming via LiveFeedEngine |
+| `delta-dashboard` | KPI dashboard from Delta Lake tables |
+| `ml-scoring` | Batch ML scoring + serving endpoint |
+| `knowledge-assistant` | Document Q&A via Knowledge Assistant |
+| `uc-functions` | Unity Catalog Python/SQL functions |
+| `supply-chain-map` | Geospatial map (deck.gl + Mapbox) |
+| `predictive-maintenance` | IoT anomaly detection + work orders |
+| `risk-scoring` | Entity risk scores + portfolio view |
+| `exception-management` | Exception tracking + resolution flow |
+| `zerobus-streaming` | ZeroBus real-time ingest (notebook-side) |
+
+### Adding a new feature
+1. Create `features/<id>/config.json` with metadata and `requires` dependencies
+2. Write `features/<id>/skill.md` — tell vibe the exact steps to provision and wire this feature
+3. (Optional) Add `routes.py` with FastAPI endpoints and/or `components/` with React components
+4. The wizard automatically picks it up on next run
 
 ## Known Gotchas
 
@@ -591,7 +726,7 @@ host = "my-app.aws.databricksapps.com"
 The Agent Workflows page fetches data from `GET /api/agent-overview` (built into `main.py`), which queries the Lakebase `workflows` and `agent_actions` tables (from `core_schema.sql`). The approve/dismiss buttons call `PATCH /api/workflows/{id}` (also built-in). If Lakebase is not set up, the endpoint returns empty data gracefully. **You MUST create the Lakebase instance, database, and apply `core_schema.sql` BEFORE deploying the app** for the KPIs and workflow cards to show meaningful data.
 
 ### 20. Frontend has no dashboard — vibe must build it
-The scaffold template only includes two starter pages (AI Chat + Agent Workflows). There is NO dashboard page by default. Vibe must generate the dashboard, layout, and domain pages based on the user's preferences. See the "Frontend Generation Flow" section for what to ask before building.
+The scaffold template only includes two starter pages (AI Chat + Agent Workflows as React components). There is NO dashboard page by default. Vibe must generate the dashboard, layout, and domain pages based on the user's preferences. See the "Frontend Generation Flow" section for what to ask before building. Build the frontend, then run `npm run build` before deploying.
 
 ### 21. Statement Execution API only supports single statements
 The Databricks Statement Execution API (`POST /api/2.0/sql/statements`) executes a **single** SQL statement per request. Sending multiple statements separated by `;` fails with a parse error. The notebook UI splits on `-- COMMAND ----------` markers and sends each cell individually, so multi-statement `.sql` files work fine in the notebook UI but fail when executed via API or CLI. When automating notebook execution via API, send each statement as a separate API call.
@@ -823,6 +958,9 @@ In `agent_bricks/mas_config.json`, add (note: `agent_type` uses kebab-case):
 - `app/requirements.txt` — Pinned dependencies
 - `lakebase/core_schema.sql` — Required tables
 - `lakebase-mcp-server/app/mcp_server.py` — MCP server code (works with any Lakebase database)
+- `app/frontend/src/components/vda/` — VDA compound components (update via VDA library releases, not ad-hoc edits)
+- `app/frontend/src/components/ui/` — shadcn/ui primitives (regenerate via `npx shadcn add`, not manual edits)
+- `app/frontend/src/hooks/` — useApi, useSSE, useTheme, useLiveFeed core hooks
 
 ### CUSTOMIZE (fill placeholders)
 - `app/app.yaml` — Replace all TODO values
@@ -836,13 +974,15 @@ In `agent_bricks/mas_config.json`, add (note: `agent_type` uses kebab-case):
 - `agent_bricks/mas_config.json` — Configure MAS agents (include Lakebase MCP connection)
 - `genie_spaces/config.json` — Configure Genie Space tables
 - `.mcp.json` — Set Databricks CLI profile
+- `app/frontend/src/styles/themes/` — Activate and customize the right theme file
+- `app/frontend/src/lib/agentNames.ts` — Map MAS tool names to display labels
 
 ### BUILD FROM SCRATCH (vibe generates — ask user preferences first)
-- **App layout and navigation** — sidebar, top nav, or dashboard-first (ask user)
-- **Color scheme and branding** — update CSS variables in `:root` (ask user)
-- **Dashboard page** — KPIs, charts, tables, briefing (ask user what metrics matter)
-- **Domain-specific pages** — inventory, shipments, patients, etc. (ask user)
-- Domain-specific API endpoints
+- **App layout and navigation** — choose AppShell variant: sidebar, topnav, or dashboard-first (ask user)
+- **Color scheme and branding** — activate theme file and adjust token values (ask user)
+- **Dashboard page** (`src/pages/DashboardPage.tsx`) — KPIs, charts, tables, briefing (ask user what metrics matter)
+- **Domain-specific pages** (`src/pages/`) — inventory, shipments, patients, etc. (ask user); register each in `App.tsx` routes array
+- Domain-specific API endpoints in `main.py`
 - Agent prompts and tool descriptions
 - Data model and constants for data generation
 - Talk track and demo narrative
