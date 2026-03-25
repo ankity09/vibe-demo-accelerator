@@ -1,13 +1,13 @@
-import React from 'react'
-import ReactDOM from 'react-dom/client'
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import { App } from './App'
+import { demoConfig } from './demo-config'
 import './styles/globals.css'
 
-document.documentElement.setAttribute('data-theme', 'neutral-dark')
+document.documentElement.setAttribute('data-theme', `${demoConfig.theme}-${demoConfig.mode}`)
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <div className="bg-surface-primary text-content-primary p-8">
-      <h1 className="text-2xl font-bold text-accent">VDA Theme System Working</h1>
-    </div>
-  </React.StrictMode>,
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
 )
