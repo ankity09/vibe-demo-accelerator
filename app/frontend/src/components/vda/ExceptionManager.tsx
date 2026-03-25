@@ -64,7 +64,7 @@ function SkeletonCard() {
 }
 
 export function ExceptionManager({
-  endpoint = '/api/exceptions',
+  endpoint = '/exceptions',
   severityColors = defaultSeverityColors,
   actions = ['acknowledge', 'escalate', 'resolve', 'dismiss'],
   onAskAI,

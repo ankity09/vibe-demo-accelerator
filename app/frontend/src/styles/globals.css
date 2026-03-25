@@ -53,20 +53,14 @@ body {
   color: var(--text-primary);
 }
 
-/* Transition defaults for theme switching */
-*,
-*::before,
-*::after {
-  transition-property: color, background-color, border-color, outline-color, fill, stroke;
-  transition-duration: 150ms;
-  transition-timing-function: ease;
-}
-
-/* Override transition for elements that should animate differently */
-[class*="transition-"],
-[class*="duration-"],
-[class*="ease-"] {
-  transition-property: unset;
-  transition-duration: unset;
-  transition-timing-function: unset;
+/* Transition defaults for theme switching.
+   Uses a low-specificity layer so Tailwind transition-* utilities always win. */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    transition-property: color, background-color, border-color, outline-color, fill, stroke;
+    transition-duration: 150ms;
+    transition-timing-function: ease;
+  }
 }

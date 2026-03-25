@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { X } from 'lucide-react'
 import { useApi } from '@/hooks/useApi'
 import { api } from '@/lib/api'
-import { timeAgo } from '@/lib/utils'
+import { cn, timeAgo } from '@/lib/utils'
 
 interface Note {
   id: string | number
@@ -22,7 +22,7 @@ interface NotesPanelProps {
 export function NotesPanel({
   entityType,
   entityId,
-  endpoint = '/api/notes',
+  endpoint = '/notes',
   open,
   onClose,
 }: NotesPanelProps) {
@@ -71,13 +71,13 @@ export function NotesPanel({
 
       {/* Panel */}
       <div
-        className={[
+        className={cn(
           'fixed top-0 right-0 h-full w-96 z-50',
           'bg-surface-primary border-l border-border',
           'flex flex-col',
           'transition-transform duration-200',
           open ? 'translate-x-0' : 'translate-x-full',
-        ].join(' ')}
+        )}
         role="dialog"
         aria-modal="true"
         aria-label="Notes panel"
@@ -144,23 +144,23 @@ export function NotesPanel({
             onChange={(e) => setNoteText(e.target.value)}
             placeholder="Add a note..."
             rows={3}
-            className={[
+            className={cn(
               'w-full resize-none rounded-lg px-3 py-2',
               'bg-surface-card border border-border',
               'text-content-primary text-sm placeholder:text-content-muted',
               'focus:outline-none focus:ring-1 focus:ring-accent',
               'transition-colors',
-            ].join(' ')}
+            )}
           />
           <button
             type="submit"
             disabled={submitting || !noteText.trim()}
-            className={[
+            className={cn(
               'w-full rounded-lg px-3 py-1.5 text-xs font-medium',
               'bg-accent text-white',
               'hover:opacity-90 transition-opacity',
               'disabled:opacity-40 disabled:cursor-not-allowed',
-            ].join(' ')}
+            )}
           >
             {submitting ? 'Saving...' : 'Add Note'}
           </button>

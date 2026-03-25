@@ -18,12 +18,18 @@ interface UseSSEOptions {
 export function useSSE(endpoint: string, options: UseSSEOptions = {}) {
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  // Store options in a ref so the send callback never goes stale
+  // but also never causes re-creation of the callback.
+  const optionsRef = useRef(options)
+  optionsRef.current = options
 
   const send = useCallback(async (body: Record<string, unknown>) => {
     if (abortRef.current) abortRef.current.abort()
     const controller = new AbortController()
     abortRef.current = controller
     setIsStreaming(true)
+
+    const opts = optionsRef.current
 
     try {
       const response = await fetch(endpoint, {
@@ -34,11 +40,16 @@ export function useSSE(endpoint: string, options: UseSSEOptions = {}) {
       })
 
       if (!response.ok) {
-        options.onError?.(`HTTP ${response.status}: ${response.statusText}`)
+        opts.onError?.(`HTTP ${response.status}: ${response.statusText}`)
         return
       }
 
-      const reader = response.body!.getReader()
+      if (!response.body) {
+        opts.onError?.('Response body is null')
+        return
+      }
+
+      const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
 
@@ -53,7 +64,7 @@ export function useSSE(endpoint: string, options: UseSSEOptions = {}) {
           if (!line.startsWith('data: ')) continue
           const data = line.slice(6).trim()
           if (data === '[DONE]') {
-            options.onDone?.()
+            optionsRef.current.onDone?.()
             setIsStreaming(false)
             return
           }
@@ -62,59 +73,60 @@ export function useSSE(endpoint: string, options: UseSSEOptions = {}) {
           try {
             const parsed = JSON.parse(data)
             const event = parsed.event || parsed.type
+            const o = optionsRef.current
 
             switch (event) {
               case 'thinking':
-                options.onThinking?.(parsed.text || parsed.content || '')
+                o.onThinking?.(parsed.text || parsed.content || '')
                 break
               case 'delta':
-                options.onDelta?.(parsed.text || parsed.content || '')
+                o.onDelta?.(parsed.text || parsed.content || '')
                 break
               case 'tool_call':
-                options.onToolCall?.(parsed.name || parsed.tool || '')
+                o.onToolCall?.(parsed.name || parsed.tool || '')
                 break
               case 'agent_switch':
-                options.onAgentSwitch?.(parsed.name || parsed.agent || '')
+                o.onAgentSwitch?.(parsed.name || parsed.agent || '')
                 break
               case 'sub_result':
-                options.onSubResult?.(parsed.data || parsed)
+                o.onSubResult?.(parsed.data || parsed)
                 break
               case 'action_card':
-                options.onActionCard?.(parsed.card || parsed)
+                o.onActionCard?.(parsed.card || parsed)
                 break
               case 'suggested_actions':
-                options.onSuggestedActions?.(parsed.actions || [])
+                o.onSuggestedActions?.(parsed.actions || [])
                 break
               case 'mcp_approval':
-                options.onMcpApproval?.(parsed.request || parsed)
+                o.onMcpApproval?.(parsed.request || parsed)
                 break
               case 'error':
-                options.onError?.(parsed.message || parsed.text || 'Unknown error')
+                o.onError?.(parsed.message || parsed.text || 'Unknown error')
                 break
               case 'session_expired':
-                options.onSessionExpired?.()
+                o.onSessionExpired?.()
                 break
               default:
                 // Unknown event type — check for text content as fallback
                 if (parsed.text || parsed.content) {
-                  options.onDelta?.(parsed.text || parsed.content)
+                  o.onDelta?.(parsed.text || parsed.content)
                 }
             }
           } catch {
             // Non-JSON SSE data — treat as plain text delta
-            options.onDelta?.(data)
+            optionsRef.current.onDelta?.(data)
           }
         }
       }
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
-        options.onError?.((err as Error).message || 'Stream failed')
+        optionsRef.current.onError?.((err as Error).message || 'Stream failed')
       }
     } finally {
       setIsStreaming(false)
       abortRef.current = null
     }
-  }, [endpoint, options])
+  }, [endpoint])
 
   const abort = useCallback(() => {
     abortRef.current?.abort()

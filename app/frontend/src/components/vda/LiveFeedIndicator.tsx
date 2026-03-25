@@ -52,7 +52,7 @@ export function LiveFeedIndicator({
             <span key={stream} className="text-content-muted text-xs">
               {stream}: {stat.rows_inserted} rows
               {stat.errors > 0 && (
-                <span className="text-red-400 ml-1">({stat.errors} err)</span>
+                <span className="text-error ml-1">({stat.errors} err)</span>
               )}
             </span>
           ))}

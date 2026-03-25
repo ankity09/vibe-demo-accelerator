@@ -22,6 +22,7 @@ interface AgentOverviewResponse {
 }
 
 interface WorkflowPanelProps {
+  /** API endpoint path relative to axios baseURL (e.g. '/agent-overview', NOT '/api/agent-overview') */
   endpoint?: string
   workflowTypes?: string[]
   severityLevels?: string[]
@@ -333,7 +334,7 @@ function WorkflowDetailModal({
 }
 
 export function WorkflowPanel({
-  endpoint = '/api/agent-overview',
+  endpoint = '/agent-overview',
   workflowTypes,
   severityLevels,
   agentSteps,

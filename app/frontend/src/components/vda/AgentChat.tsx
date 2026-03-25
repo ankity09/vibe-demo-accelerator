@@ -262,7 +262,7 @@ export function AgentChat({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
-  const { send } = useSSE(endpoint, {
+  const { send, abort } = useSSE(endpoint, {
     onThinking: appendThinking,
     onDelta: appendResponse,
     onToolCall: addToolCall,
@@ -280,6 +280,11 @@ export function AgentChat({
       setStreaming(false)
     },
   })
+
+  // Abort any in-flight stream when the component unmounts
+  useEffect(() => {
+    return () => abort()
+  }, [abort])
 
   // Auto-scroll to bottom during streaming
   useEffect(() => {

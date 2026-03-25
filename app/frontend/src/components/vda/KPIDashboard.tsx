@@ -59,8 +59,8 @@ export function KPIDashboard({ metrics, columns = 4, loading = false }: KPIDashb
                   <div
                     className={cn(
                       'flex items-center gap-1 mt-1 text-xs font-medium',
-                      isUp && 'text-green-500',
-                      isDown && 'text-red-500',
+                      isUp && 'text-success',
+                      isDown && 'text-error',
                       !isUp && !isDown && 'text-content-muted'
                     )}
                   >

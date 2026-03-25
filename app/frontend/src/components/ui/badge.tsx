@@ -12,13 +12,13 @@ const badgeVariants = cva(
         secondary:
           'border-transparent bg-surface-card text-content-secondary border border-border',
         destructive:
-          'border-transparent bg-red-600/20 text-red-400 border border-red-600/30',
+          'border-transparent bg-error/20 text-error border border-error/30',
         outline:
           'text-content-primary border border-border',
         success:
-          'border-transparent bg-green-600/20 text-green-400 border border-green-600/30',
+          'border-transparent bg-success/20 text-success border border-success/30',
         warning:
-          'border-transparent bg-amber-500/20 text-amber-400 border border-amber-500/30',
+          'border-transparent bg-warning/20 text-warning border border-warning/30',
       },
     },
     defaultVariants: {
