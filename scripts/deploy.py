@@ -11,6 +11,7 @@ Usage:
 Steps (run in order by default):
     config      Load target config and validate
     template    Generate app/app.yaml from target variables
+    build       Build React frontend (npm install + npm run build)
     lakebase    Create Lakebase instance + database + apply schemas
     data        Run setup notebooks (placeholder — prints instructions)
     ai          Create Genie Space (placeholder — prints instructions)
@@ -53,6 +54,7 @@ except ImportError:
 ALL_STEPS = [
     "config",
     "template",
+    "build",
     "lakebase",
     "data",
     "ai",
@@ -513,6 +515,62 @@ def _step_template(config: dict, dry_run: bool) -> None:
         _warn(f"{todo_count} TODO placeholders remain — set variables in databricks.yml")
     else:
         _success("All placeholders resolved")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Step: build
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _step_build(config: dict, dry_run: bool) -> None:
+    """Build the React frontend before deployment."""
+    _header("build", "Building React frontend")
+
+    frontend_dir = PROJECT_ROOT / "app" / "frontend"
+    pkg_json = frontend_dir / "package.json"
+
+    if not pkg_json.is_file():
+        _warn(f"No package.json found at {frontend_dir} — skipping frontend build")
+        return
+
+    if dry_run:
+        _info(f"Would run npm install in {frontend_dir}")
+        _info(f"Would run npm run build in {frontend_dir}")
+        return
+
+    _info(f"Installing frontend dependencies...")
+    try:
+        subprocess.run(
+            ["npm", "install"],
+            cwd=str(frontend_dir),
+            check=True,
+            capture_output=True,
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        raise CLIError("npm install timed out (>5 minutes)")
+    except subprocess.CalledProcessError as e:
+        raise CLIError(f"npm install failed: {e.stderr.decode()}")
+
+    _info(f"Building React frontend...")
+    try:
+        result = subprocess.run(
+            ["npm", "run", "build"],
+            cwd=str(frontend_dir),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        raise CLIError("npm run build timed out (>5 minutes)")
+    except subprocess.CalledProcessError as e:
+        raise CLIError(f"npm run build failed:\n{e.stderr}")
+
+    dist_dir = frontend_dir / "dist"
+    if dist_dir.is_dir():
+        _success(f"Frontend built to {dist_dir}")
+    else:
+        raise CLIError(f"Build completed but {dist_dir} not found")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1358,6 +1416,7 @@ def main() -> None:
             Steps (run in order by default):
               config      Load target config and validate
               template    Generate app/app.yaml from target variables
+              build       Build React frontend (npm install + npm run build)
               lakebase    Create Lakebase instance + database + apply schemas
               data        Run setup notebooks (prints instructions)
               ai          Create Genie Space + MAS (prints instructions)
@@ -1433,6 +1492,7 @@ def main() -> None:
     step_dispatch = {
         "config":      lambda: _step_config(config, args.dry_run),
         "template":    lambda: _step_template(config, args.dry_run),
+        "build":       lambda: _step_build(config, args.dry_run),
         "lakebase":    lambda: _step_lakebase(config, args.dry_run),
         "data":        lambda: _step_data(config, args.dry_run),
         "ai":          lambda: _step_ai(config, args.dry_run),
