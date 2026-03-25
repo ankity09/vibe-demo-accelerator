@@ -1,0 +1,53 @@
+/* Corporate Theme — Navy/Blue — professional enterprise aesthetic */
+
+[data-theme="corporate-dark"] {
+  --bg-primary: #0C1222;
+  --bg-secondary: #162032;
+  --bg-card: #1C2C45;
+  --bg-hover: #213252;
+
+  --text-primary: #F9FAFB;
+  --text-secondary: #D1D5DB;
+  --text-muted: #6B7280;
+
+  --accent: #3B82F6;
+  --accent-hover: #60A5FA;
+  --accent-muted: rgba(59, 130, 246, 0.15);
+
+  --success: #10B981;
+  --warning: #F59E0B;
+  --error: #EF4444;
+  --info: #3B82F6;
+
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.16);
+
+  --ring: rgba(59, 130, 246, 0.3);
+  --shadow: rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="corporate-light"] {
+  --bg-primary: #F9FAFB;
+  --bg-secondary: #F3F4F6;
+  --bg-card: #FFFFFF;
+  --bg-hover: #E5E7EB;
+
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-muted: #9CA3AF;
+
+  --accent: #2563EB;
+  --accent-hover: #1D4ED8;
+  --accent-muted: rgba(37, 99, 235, 0.15);
+
+  --success: #10B981;
+  --warning: #F59E0B;
+  --error: #EF4444;
+  --info: #3B82F6;
+
+  --border: rgba(17, 24, 39, 0.1);
+  --border-hover: rgba(17, 24, 39, 0.2);
+
+  --ring: rgba(37, 99, 235, 0.3);
+  --shadow: rgba(17, 24, 39, 0.15);
+}

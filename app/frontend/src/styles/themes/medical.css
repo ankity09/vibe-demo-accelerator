@@ -1,0 +1,53 @@
+/* Medical Theme — Slate/Teal — clean medical aesthetic */
+
+[data-theme="medical-dark"] {
+  --bg-primary: #0F172A;
+  --bg-secondary: #1E293B;
+  --bg-card: #243047;
+  --bg-hover: #2A3854;
+
+  --text-primary: #F8FAFC;
+  --text-secondary: #CBD5E1;
+  --text-muted: #64748B;
+
+  --accent: #14B8A6;
+  --accent-hover: #2DD4BF;
+  --accent-muted: rgba(20, 184, 166, 0.15);
+
+  --success: #10B981;
+  --warning: #F59E0B;
+  --error: #EF4444;
+  --info: #3B82F6;
+
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.16);
+
+  --ring: rgba(20, 184, 166, 0.3);
+  --shadow: rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="medical-light"] {
+  --bg-primary: #F8FAFC;
+  --bg-secondary: #F1F5F9;
+  --bg-card: #FFFFFF;
+  --bg-hover: #E2E8F0;
+
+  --text-primary: #0F172A;
+  --text-secondary: #334155;
+  --text-muted: #94A3B8;
+
+  --accent: #0D9488;
+  --accent-hover: #0F766E;
+  --accent-muted: rgba(13, 148, 136, 0.15);
+
+  --success: #10B981;
+  --warning: #F59E0B;
+  --error: #EF4444;
+  --info: #3B82F6;
+
+  --border: rgba(15, 23, 42, 0.1);
+  --border-hover: rgba(15, 23, 42, 0.2);
+
+  --ring: rgba(13, 148, 136, 0.3);
+  --shadow: rgba(15, 23, 42, 0.15);
+}

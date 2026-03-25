@@ -1,0 +1,53 @@
+/* Industrial Theme — Navy/Amber — dark industrial aesthetic */
+
+[data-theme="industrial-dark"] {
+  --bg-primary: #0A0F1C;
+  --bg-secondary: #111827;
+  --bg-card: #1A2236;
+  --bg-hover: #1F2A40;
+
+  --text-primary: #F9FAFB;
+  --text-secondary: #D1D5DB;
+  --text-muted: #6B7280;
+
+  --accent: #F59E0B;
+  --accent-hover: #FBBF24;
+  --accent-muted: rgba(245, 158, 11, 0.15);
+
+  --success: #10B981;
+  --warning: #F59E0B;
+  --error: #EF4444;
+  --info: #3B82F6;
+
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.16);
+
+  --ring: rgba(245, 158, 11, 0.3);
+  --shadow: rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="industrial-light"] {
+  --bg-primary: #F8FAFC;
+  --bg-secondary: #F1F5F9;
+  --bg-card: #FFFFFF;
+  --bg-hover: #E2E8F0;
+
+  --text-primary: #0F172A;
+  --text-secondary: #334155;
+  --text-muted: #94A3B8;
+
+  --accent: #D97706;
+  --accent-hover: #B45309;
+  --accent-muted: rgba(217, 119, 6, 0.15);
+
+  --success: #10B981;
+  --warning: #F59E0B;
+  --error: #EF4444;
+  --info: #3B82F6;
+
+  --border: rgba(15, 23, 42, 0.1);
+  --border-hover: rgba(15, 23, 42, 0.2);
+
+  --ring: rgba(217, 119, 6, 0.3);
+  --shadow: rgba(15, 23, 42, 0.15);
+}

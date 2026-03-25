@@ -1,0 +1,53 @@
+/* Neutral Theme — Zinc/Emerald — clean minimal aesthetic */
+
+[data-theme="neutral-dark"] {
+  --bg-primary: #111111;
+  --bg-secondary: #1A1A1A;
+  --bg-card: #242424;
+  --bg-hover: #2C2C2C;
+
+  --text-primary: #FAFAFA;
+  --text-secondary: #D4D4D8;
+  --text-muted: #71717A;
+
+  --accent: #10B981;
+  --accent-hover: #34D399;
+  --accent-muted: rgba(16, 185, 129, 0.15);
+
+  --success: #10B981;
+  --warning: #F59E0B;
+  --error: #EF4444;
+  --info: #3B82F6;
+
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.16);
+
+  --ring: rgba(16, 185, 129, 0.3);
+  --shadow: rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="neutral-light"] {
+  --bg-primary: #FAFAFA;
+  --bg-secondary: #F4F4F5;
+  --bg-card: #FFFFFF;
+  --bg-hover: #E4E4E7;
+
+  --text-primary: #18181B;
+  --text-secondary: #3F3F46;
+  --text-muted: #A1A1AA;
+
+  --accent: #059669;
+  --accent-hover: #047857;
+  --accent-muted: rgba(5, 150, 105, 0.15);
+
+  --success: #10B981;
+  --warning: #F59E0B;
+  --error: #EF4444;
+  --info: #3B82F6;
+
+  --border: rgba(24, 24, 27, 0.1);
+  --border-hover: rgba(24, 24, 27, 0.2);
+
+  --ring: rgba(5, 150, 105, 0.3);
+  --shadow: rgba(24, 24, 27, 0.15);
+}
